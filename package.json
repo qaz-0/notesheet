@@ -3,6 +3,7 @@
   "private": true,
   "version": "0.0.0",
   "type": "module",
+  "homepage": "/notesheet",
   "scripts": {
     "dev": "vite",
     "build": "vite build",
@@ -17,5 +18,8 @@
     "typescript": "~5.7.2",
     "vite": "^6.2.0",
     "vite-plugin-pwa": "^1.0.0"
+  },
+  "dependencies": {
+    "@sveltejs/adapter-static": "^3.0.8"
   }
 }
