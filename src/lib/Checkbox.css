@@ -1,0 +1,33 @@
+.tri-state-checkbox {
+    width: 1lh;
+    height: 1lh;
+    border: 2px solid grey;
+    cursor: pointer;
+    display: block;
+    box-sizing: border-box;
+    background-color: transparent;
+    transition: background-color 0.1s ease-in-out, border-color 0.1s ease-in-out;
+}
+
+.tri-state-checkbox[data-state='1'] {
+    background-color: var(--color);
+    border-color: var(--color);
+}
+
+.tri-state-checkbox[data-state='2'] {
+    background-color: green;
+    border-color: green;
+}
+
+.tri-state-checkbox[data-disabled='true'] {
+    cursor: not-allowed;
+    opacity: 0.3;
+    border-color: grey;
+    background-color: transparent;
+}
+
+.tri-state-checkbox:focus {
+    outline: none;
+    border: 2px solid white;
+    border-radius: 0;
+}

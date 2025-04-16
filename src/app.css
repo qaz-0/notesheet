@@ -1,23 +1,50 @@
 @import "tailwindcss";
 
 :root {
-  font-family: system-ui, Avenir, Helvetica, Arial, sans-serif;
-  line-height: 1.5;
-  font-weight: 400;
+    font-family: system-ui, Avenir, Helvetica, Arial, sans-serif;
+    line-height: 1.5;
+    font-weight: 400;
 
-  color-scheme: light dark;
-  color: #808080;
-  --background-color: #202022;
-  background-color: var(--background-color);
+    color-scheme: light dark;
+    color: #808080;
+    --background-color: #202022;
+    background-color: var(--background-color);
 
-  font-synthesis: none;
-  text-rendering: optimizeLegibility;
-  -webkit-font-smoothing: antialiased;
-  -moz-osx-font-smoothing: grayscale;
+    font-synthesis: none;
+    text-rendering: optimizeLegibility;
+    -webkit-font-smoothing: antialiased;
+    -moz-osx-font-smoothing: grayscale;
 }
 
 @media (prefers-color-scheme: light) {
 }
 
 @media (prefers-color-scheme: dark) {
+}
+
+.tables {
+    display: flex;
+    flex-direction: row;
+    gap: 10em;
+}
+/*
+.add-table-container {
+    height: 100%;
+    position: absolute;
+    right: 0;
+    transform: translateX(50%);
+    width: 3em;
+    pointer-events: auto;
+} */
+
+.add-table {
+    display: block;
+    top: 50%;
+    margin: 50px 100px 50px 0;
+    background-color: var(--background-color);
+    transition: opacity 0.2s ease-out;
+    width: 2em;
+    height: 2em;
+    position: sticky;
+    cursor: pointer;
 }
