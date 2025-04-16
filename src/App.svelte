@@ -9,8 +9,6 @@
     let tables: TableMeta[] = $state([]);
     let showCreateDialog = $state(false);
 
-    resetDB();
-
     function openAddTableDialog() {
         showCreateDialog = true;
     }
