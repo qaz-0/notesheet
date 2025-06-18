@@ -19,7 +19,12 @@
             name,
             color,
             secondaryColor,
-            fields: ["c", "date", "item", "note"], // Default fields for now
+            fields: [
+                { id: "c", "name": "c", "size": 50 },
+                { "name": "date", "size": 50 },
+                { "name": "item", "size": 50 },
+                { "name": "note", "size": 50 }
+            ],
         };
         try {
             const newTable = await createTable(tableMeta);
@@ -38,6 +43,8 @@
         console.log(tablesMeta)
         tables = tablesMeta
     });
+
+    // deleteTable(3);
 </script>
 
 <main>

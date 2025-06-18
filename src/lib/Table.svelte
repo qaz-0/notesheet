@@ -1,28 +1,46 @@
 <script lang="ts">
     import './Table.css';
     import plusIcon from '../assets/square-plus.svg';
-    import { getTable, editItem, getItemById, getAllTableMetadata, addFieldMetadata, removeFieldMetadata, deleteItem, deleteTable } from './db';
-    import type { CheckboxState, Item, Table } from './types';
+    import { getTable, editItem, getItemById, getAllTableMetadata, addFieldMetadata, removeFieldMetadata, deleteItem, deleteTable, getTableMetadata, setTableMetadata } from './db';
+    import type { CheckboxState, Field, Item, Table } from './types';
     import Checkbox from './Checkbox.svelte';
+    import SvelteMarkdown from 'svelte-markdown';
+    import { mount } from 'svelte';
 
     let { table }: { table: Table } = $props();
     const tableId = table.id!;
     let tableData: (Item | null)[] = $state([]);
-    let fields: string[] = $state(table.fields);
+    let fields: Field[] = $state(table.fields);
     let isEditing = $state(false);
-    let checkboxIndex = table.fields.indexOf("c");
+    let checkboxIndex = table.fields.findIndex((f) => f.name == "c");
     let tableContainer: HTMLElement;
+    let resizingColumnIndex: number | null = $state(null);
+    let startX: number;
+    let startWidth: number;
+    const MIN_COLUMN_WIDTH = 20;
 
     async function loadTableData() {
         const newTableData = [];
         const data = await getTable(tableId);
-        checkboxIndex = fields.indexOf("c");
+        checkboxIndex = fields.findIndex((f) => f.name == "c");
 
+        let dataIdx = 0;
+        let rowNum = 0;
         for (let i = 0; i < 100; i++) {
-            if (data.length > 0 && data[data.length - 1].id == i)
-                newTableData.push(data.pop()!);
-            else
+            let item = data[dataIdx];
+            console.log(item);
+            if (item && item.id == i) {
+                if (item.c == 2) {
+                    deleteItem(tableId, i);
+                } else {
+                    newTableData.push(item);
+                    rowNum++
+                }
+                dataIdx++;
+            } else {
                 newTableData.push(null);
+                rowNum++
+            }
         }
 
         tableData = newTableData;
@@ -30,15 +48,89 @@
 
     loadTableData();
 
+    function startResize(event: PointerEvent, index: number) {
+        if (!isEditing) return;
+        event.preventDefault();
+        event.stopPropagation();
+        resizingColumnIndex = index;
+        startX = event.clientX;
+        const th = (event.target as HTMLElement).closest('th') as HTMLTableCellElement;
+        startWidth = th.offsetWidth;
+
+        window.addEventListener('pointermove', doResize);
+        window.addEventListener('pointerup', stopResize);
+    }
+
+    function doResize(event: PointerEvent) {
+        if (resizingColumnIndex === null) return;
+        event.preventDefault();
+        const diffX = event.clientX - startX;
+        let newWidth = startWidth + diffX;
+        if (newWidth < MIN_COLUMN_WIDTH) {
+            newWidth = MIN_COLUMN_WIDTH;
+        }
+
+        const ths = tableContainer.querySelectorAll('thead th');
+        if (ths[resizingColumnIndex]) {
+            const th = ths[resizingColumnIndex] as HTMLTableCellElement;
+            th.style.width = `${newWidth}px`;
+        }
+    }
+
+    async function stopResize() {
+        if (resizingColumnIndex === null) return;
+
+        const ths = tableContainer.querySelectorAll('thead th');
+        if (ths[resizingColumnIndex]) {
+            const th = ths[resizingColumnIndex] as HTMLTableCellElement;
+            const newWidth = th.offsetWidth;
+
+            const fieldToUpdate = fields[resizingColumnIndex];
+            if (fieldToUpdate && fieldToUpdate.size !== newWidth) {
+                const newFieldData = { ...fieldToUpdate, size: newWidth };
+                fields[resizingColumnIndex] = newFieldData;
+                await addFieldMetadata(tableId, newFieldData, resizingColumnIndex);
+            }
+        }
+
+        window.removeEventListener('pointermove', doResize);
+        window.removeEventListener('pointerup', stopResize);
+        resizingColumnIndex = null;
+    }
+
     function handleTableClick(e: PointerEvent) {
         const target = e.target as HTMLElement;
         const caption = target.closest("caption");
+
         const headerCell = target.closest("thead th") as (HTMLTableCellElement | null);
         const bodyCell = target.closest("tbody td") as (HTMLTableCellElement | null);
         const bodyCellParent = bodyCell?.parentElement;
 
         if (caption) {
-            isEditing = !isEditing;
+            const tableNameElement = caption.firstElementChild as HTMLElement;
+            if (target == tableNameElement) {
+                tableNameElement.classList.add('edit');
+                tableNameElement.contentEditable = "true";
+
+                const blurHandler = async () => {
+                    tableNameElement.removeEventListener("blur", blurHandler);
+                    tableNameElement.classList.remove('edit');
+                    tableNameElement.removeAttribute('contenteditable');
+
+                    const newName = tableNameElement.innerText.trim();
+                    if (newName) {
+                        const table = await getTableMetadata(tableId);
+                        table.name = newName;
+                        await setTableMetadata(table);
+                    }
+                };
+
+                tableNameElement.addEventListener("blur", blurHandler);
+            } else {
+                setTimeout(() => {
+                    isEditing = !isEditing;
+                },1)
+            }
             return;
         }
 
@@ -120,6 +212,7 @@
         if (event.key === "Tab" || nextCell) {
             event.preventDefault();
         }
+        console.log(nextCell);
 
         return { nextCell, isCheckbox, goToStart };
     }
@@ -150,11 +243,20 @@
         cell.addEventListener("keydown", keydownHandler);
     }
 
-    function editCell(cell: HTMLTableCellElement, isHeader: boolean, atStart?: boolean) {
+    async function editCell(cell: HTMLTableCellElement, isHeader: boolean, atStart?: boolean) {
         if (cell.isContentEditable) return;
 
         const row = cell.parentElement as HTMLTableRowElement;
-        const originalText = cell.innerText;
+        const rowNum = Number(row.getAttribute("data-row"));
+        const originalText = cell.innerText.trimEnd();
+        if (!isHeader) {
+            const item = await getItemById(tableId, rowNum)
+            const plainText = item ? item[cell.cellIndex] ?? '' : '';
+            if (cell.innerText !== plainText) cell.innerText = plainText;
+        } else {
+            cell.innerText = fields[cell.cellIndex].name
+        }
+
         cell.classList.add('edit');
         cell.contentEditable = "true";
 
@@ -162,6 +264,8 @@
             cell.focus();
 
             if (atStart !== undefined) {
+                console.log('aaa')
+                // move cursor to start or end
                 const selection = window.getSelection();
                 if (!selection) return;
 
@@ -180,9 +284,10 @@
             if (navResult.nextCell) {
                 await finishEdit(false);
                 if (navResult.isCheckbox) {
-                    focusCell(navResult.nextCell)
+                    focusCell(navResult.nextCell);
                 } else {
-                    editCell(navResult.nextCell, false, navResult.goToStart);
+                    let isHeader = cell.tagName === 'TH';
+                    editCell(navResult.nextCell, isHeader, navResult.goToStart);
                 }
             } else if (event.key === "Escape") {
                 event.preventDefault();
@@ -192,7 +297,7 @@
                 await finishEdit(true, originalText);
 
                 const fieldToRemove = fields[cell.cellIndex];
-                if (fieldToRemove && confirm(`Are you sure you want to delete the column "${fieldToRemove}"?`)) {
+                if (fieldToRemove && confirm(`Are you sure you want to delete the column "${fieldToRemove.name}"?`)) {
                     await removeFieldMetadata(tableId, fieldToRemove);
                     fields = fields.filter(field => field !== fieldToRemove);
                     if (fields.length === 0) {
@@ -200,6 +305,9 @@
                         tableContainer.remove();
                     }
                 }
+            } else if (isHeader && event.key === "Enter") {
+                event.preventDefault();
+                await finishEdit();
             }
         };
 
@@ -217,7 +325,7 @@
 
             if (!cell.isContentEditable) return;
 
-            const newText = cell.innerText;
+            const newText = isHeader ? cell.innerText.trim() : cell.innerText;
             cell.classList.remove('edit');
             cell.removeAttribute('contenteditable');
 
@@ -229,22 +337,21 @@
                 const cellIndex = cell.cellIndex;
                 if (isHeader) {
                     const oldField = fields[cellIndex];
-                    const newField = newText.trim();
+                    const newField = { name: newText, size: oldField.size};
 
-                    if (oldField !== newField) {
-                        if (confirm(`Are you sure you want to rename the column "${oldField}" to "${newField}"?`)) {
+                    if (oldField.name !== newField.name) {
+                        if (confirm(`Are you sure you want to rename the column "${originalText}" to "${newText}"?`)) {
                             fields[cellIndex] = newField;
-                            await addFieldMetadata(tableId, newField, oldField);
+                            await addFieldMetadata(tableId, newField, cellIndex);
                             loadTableData();
                         } else {
-                            cell.innerText = oldField;
+                            cell.innerHTML = restoreText ?? originalText;
                         }
                     }
                 } else {
-                    const rowNum = Number(row.getAttribute("data-row"));
                     const newItem: Item = { id: rowNum };
                     if (cellIndex < fields.length) {
-                        newItem[fields[cellIndex]] = newText;
+                        newItem[cellIndex] = newText;
                         // if done, dont edit
                         // if not done and empty disable
                         // if not done and become not empty, enable
@@ -256,6 +363,13 @@
                                 const resultItem = await editItem(tableId, newItem);
                                 if (!disabled && !resultItem) checkbox.setAttribute("data-disabled", "true");
                                 if (disabled === "true" && resultItem) checkbox.removeAttribute("data-disabled");
+                                if (newText.endsWith("\nm")) {
+                                    cell.innerHTML = "";
+                                    mount(SvelteMarkdown, {
+                                        target: cell as Element,
+                                        props: { source: newText.slice(0, -2) }
+                                    });
+                                }
                             }
                         } else {
                             await editItem(tableId, newItem);
@@ -272,8 +386,9 @@
     }
 
     async function addColumn() {
-        const newField = prompt("Enter new column name:");
-        if (newField) {
+        const newFieldName = prompt("Enter new column name:");
+        if (newFieldName) {
+            const newField: Field = { name: newFieldName, size: 50 };
             await addFieldMetadata(tableId, newField);
             fields.push(newField);
             loadTableData();
@@ -297,7 +412,10 @@
     function oneToTwo(checkbox: HTMLDivElement) {
         const { row, rowNum } = checkboxGetRowData(checkbox);
         if (row) {
-            deleteItem(tableId, rowNum);
+            // addDeleted(tableId, rowNum);
+            // deleteItem(tableId, rowNum);
+            const newItem: Item = { id: rowNum, 'c': 2 };
+            editItem(tableId, newItem);
             row.setAttribute("data-state", "2");
         }
     };
@@ -307,10 +425,10 @@
         if (row) {
             // restore item
             const newItem: Item = { id: rowNum, 'c': 1 };
-            Array.prototype.forEach.call(row.children, child => {
-                if (child.cellIndex === checkboxIndex) return;
-                newItem[fields[child.cellIndex]] = child.innerText;
-            });
+            // Array.prototype.forEach.call(row.children, child => {
+            //     if (child.cellIndex === checkboxIndex) return;
+            //     newItem[fields[child.cellIndex]] = child.innerText;
+            // });
             editItem(tableId, newItem);
             row.setAttribute("data-state", "1");
         }
@@ -329,11 +447,13 @@
         const { row, rowNum } = checkboxGetRowData(checkbox);
         if (row) {
             // restore item
+            // const newItem: Item = { id: rowNum, 'c': 0 };
+            // Array.prototype.forEach.call(row.children, child => {
+            //     if (child.cellIndex === checkboxIndex) return;
+            //     newItem[fields[child.cellIndex]] = child.innerText;
+            // });
+            // editItem(tableId, newItem);
             const newItem: Item = { id: rowNum, 'c': 0 };
-            Array.prototype.forEach.call(row.children, child => {
-                if (child.cellIndex === checkboxIndex) return;
-                newItem[fields[child.cellIndex]] = child.innerText;
-            });
             editItem(tableId, newItem);
             row.setAttribute("data-state", "0");
         }
@@ -349,21 +469,29 @@
     </div>
     {/if}
     <table class="table" onpointerdown={handleTableClick}>
-        <caption style={`background-color: ${table.color}`}>{table.name}</caption>
+        <caption style={`background-color: ${table.color}`}>
+            <span>{table.name}</span>
+        </caption>
         <thead>
-            {#if isEditing}
-                <tr>
-                    {#each fields as key}
-                        <th>{key}</th>
-                    {/each}
-                </tr>
-            {/if}
+            <tr style={`visibility: ${isEditing ? 'visible' : 'collapse'}`}>
+                {#each fields as field, i}
+                    <th style="width: {field.id === 'c' ? '1lh' : field.size + 'px'}">
+                        {field.name}
+                        {#if field.id !== 'c'}
+                            <span
+                                class="resize-handle"
+                                onpointerdown={(e) => startResize(e, i)}>
+                            </span>
+                        {/if}
+                    </th>
+                {/each}
+            </tr>
         </thead>
         <tbody>
-        {#each tableData as row, index}
-            <tr data-row={index}>
-                {#each fields as key}
-                    {#if key === "c"}
+        {#each tableData as row, i}
+            <tr data-row={i} data-size data-k={row ? row.k ?? row.k : null}>
+                {#each fields as field, i}
+                    {#if field.id === "c"}
                         <td>
                             <Checkbox
                                 initialState={row ? row.c ?? 0 : 0}
@@ -376,9 +504,15 @@
                                 twoToZero={twoToZero}
                             />
                         </td>
-                    {:else}
+                    {:else if !field.id}
                         {#if row}
-                            <td>{@html row[key] ?? ''}</td>
+                            <td>
+                                {#if row[i]?.endsWith("\nm")}
+                                    <SvelteMarkdown source={row[i]?.slice(0, -1) ?? ''}></SvelteMarkdown>
+                                {:else}
+                                    {@html row[i] ?? ''}
+                                {/if}
+                            </td>
                         {:else}
                             <td></td>
                         {/if}

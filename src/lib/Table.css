@@ -1,26 +1,48 @@
 .table {
     border-collapse: collapse;
     table-layout: fixed;
-    width: 1px;
+    width: 50px;
     font-size: 18px;
     border: 2px solid black;
 }
 
-.table tbody tr:first-child td{
-    width: 300px;
-}
-
 .table caption {
     color: black;
+    border-top: 2px solid black;
+    border-right: 2px solid black;
+    border-left: 2px solid black;
     font-size: 1.5em;
+    cursor: pointer;
 }
 
-.table thead th {
-    width: 300px;
+.table caption > span {
+    padding: 0 20px;
+    cursor: text;
+}
+
+.table thead tr th {
+    position: sticky;
+    top: 0;
     text-align: center;
     border: 2px solid black;
     box-sizing: content-box;
-    padding: 0 5px;
+    overflow: hidden;
+    vertical-align: top;
+    width: attr(data-size type(<length>));
+}
+
+.table tr {
+    background-color: attr(data-k type(<color>));
+}
+
+.resize-handle {
+    position: absolute;
+    top: 0;
+    right: -5.5px;
+    width: 9px;
+    height: 100%;
+    cursor: ew-resize;
+    z-index: 10;
 }
 
 .table tbody td {
@@ -33,7 +55,7 @@
     vertical-align: top;
 }
 
-.table td.edit {
+.table .edit {
     outline: none;
     resize: none;
 }
@@ -47,8 +69,6 @@
     padding: 0;
     border: 2px solid black;
 }
-
-
 
 .table tr:has(> td > .tri-state-checkbox[data-state="1"]) {
     background-color: var(--secondary-color);
@@ -74,8 +94,8 @@
 
 .add-column {
     display: block;
-    top: 50%;
-    margin: 50px auto 0 auto;
+    top: 44px;
+    margin: 0 auto 0 auto;
     background-color: var(--background-color);
     opacity: 0;
     transition: opacity 0.2s ease-out;
