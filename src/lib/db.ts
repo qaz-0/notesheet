@@ -35,43 +35,59 @@ export async function createTable(table: Table) {
     return new Promise<Table>((resolve, reject) => {
         if (db.objectStoreNames.contains(tableId.toString())) {
             db.close();
-            reject(new Error(`Table ${table.id} already exists`));
+            reject(new Error(`Table store ${tableId} already exists`));
         } else {
             db.close();
             const version = db.version + 1;
             const upgradeReq = indexedDB.open(DB_NAME, version);
             table.id = tableId;
+
             upgradeReq.onupgradeneeded = (event) => {
-                // create new table
                 const upgradeDb = (event.target as IDBOpenDBRequest).result;
-                upgradeDb.createObjectStore(tableId.toString(), { keyPath: "id" })
-                    .createIndex("idIndex", "id", { unique: true });
+                const store = upgradeDb.createObjectStore(tableId.toString(), { keyPath: "id" });
+                store.createIndex("idIndex", "id", { unique: true });
             };
 
-            upgradeReq.onsuccess = () => resolve(table);
+            upgradeReq.onsuccess = () => {
+                upgradeReq.result.close();
+                resolve(table);
+            };
             upgradeReq.onerror = () => reject(upgradeReq.error);
         }
     });
 }
 
 export async function deleteTable(tableId: IDBValidKey) {
-    let tableStoreName = tableId.toString()
+    let tableStoreName = tableId.toString();
+
+    // First delete the metadata
+    await deleteTableMetadata(tableId);
+
     const db = await openDB();
-    return new Promise<IDBDatabase>((resolve, reject) => {
+    return new Promise<void>((resolve, reject) => {
+        if (!db.objectStoreNames.contains(tableStoreName)) {
+            db.close();
+            resolve();
+            return;
+        }
+
         db.close();
         const version = db.version + 1;
         const upgradeReq = indexedDB.open(DB_NAME, version);
+
         upgradeReq.onupgradeneeded = (event) => {
             const upgradeDb = (event.target as IDBOpenDBRequest).result;
             if (upgradeDb.objectStoreNames.contains(tableStoreName)) {
                 upgradeDb.deleteObjectStore(tableStoreName);
             }
         };
-        upgradeReq.onsuccess = async () => {
+
+        upgradeReq.onsuccess = () => {
             const newDb = upgradeReq.result;
-            await deleteTableMetadata(tableId);
-            resolve(newDb);
+            newDb.close();
+            resolve();
         };
+
         upgradeReq.onerror = () => reject(upgradeReq.error);
     });
 }
@@ -108,7 +124,7 @@ export async function getTable(tableId: IDBValidKey) {
 
 export async function getHistoryTableMetadata(): Promise<Table | null> {
     const metadata = await getAllTableMetadata();
-    const historyTable = metadata.find(table => table.name === "History" || table.name === "history");
+    const historyTable = metadata.find(table => table.name.toLowerCase() === "history");
     if (!historyTable) {
         return null;
     }
@@ -118,6 +134,7 @@ export async function getHistoryTableMetadata(): Promise<Table | null> {
 export async function deleteItem(tableId: IDBValidKey, id: IDBValidKey) {
     let tableStoreName = tableId.toString()
     const item = await getItemById(tableId, id);
+    const tableMetadata = await getTableMetadata(tableId);
     await shiftItems(tableId, id, true);
     const fields = (await getTableMetadata(tableId)).fields;
 
@@ -130,7 +147,7 @@ export async function deleteItem(tableId: IDBValidKey, id: IDBValidKey) {
         const db = await openDB();
         return new Promise(async (resolve, reject) => {
             const tx = db.transaction(tableStoreName, "readwrite");
-            const historyItem: Item = { id: 0, k: historyTableMetadata.secondaryColor};
+            const historyItem: Item = { id: 0, k: tableMetadata.secondaryColor};
 
             if (item) {
                 for (let i = 0; i < hTableFields.length; i++) {
@@ -178,6 +195,56 @@ export async function shiftItems(tableId: IDBValidKey, id: IDBValidKey, up: bool
                     const item = cur.value;
                     store.delete(item.id);
                     item.id = item.id + 1;
+                    store.put(item);
+                    cur.continue();
+                }
+            };
+        }
+        tx.oncomplete = () => resolve(true);
+        tx.onerror = () => reject(tx.error);
+    });
+}
+
+export async function shiftItemsSide(tableId: IDBValidKey, fieldPosition: number, right: boolean = true) {
+    let tableStoreName = tableId.toString();
+    const db = await openDB();
+    return new Promise((resolve, reject) => {
+        const tx = db.transaction(tableStoreName, "readwrite");
+        const store = tx.objectStore(tableStoreName);
+        const index = store.index("idIndex");
+        if (right) {
+            const req = index.openCursor();
+            req.onsuccess = () => {
+                const cur = req.result;
+                if (cur) {
+                    const item = cur.value;
+                    Object.keys(item).map((key) => {
+                        const pos = parseInt(key);
+                        if (pos >= fieldPosition) {
+                            let descriptor = Object.getOwnPropertyDescriptor(item, pos)!;
+                            Object.defineProperty(item, pos + 1, descriptor);
+                            delete item[pos];
+                        }
+                    })
+                    store.put(item);
+                    cur.continue();
+                }
+            };
+        } else {
+            // left
+            const req = index.openCursor();
+            req.onsuccess = () => {
+                const cur = req.result;
+                if (cur) {
+                    const item = cur.value;
+                    Object.keys(item).map((key) => {
+                        const pos = parseInt(key);
+                        if (pos > fieldPosition) {
+                            let descriptor = Object.getOwnPropertyDescriptor(item, pos)!;
+                            Object.defineProperty(item, pos - 1, descriptor);
+                            delete item[pos];
+                        }
+                    })
                     store.put(item);
                     cur.continue();
                 }
@@ -265,7 +332,7 @@ export async function removeField(tableId: IDBValidKey, field: Field, fieldPosit
                     delete item[field.id!];
                     store.put(item);
                 });
-            } else if (fieldPosition) {
+            } else if (fieldPosition !== undefined) {
                 items.forEach(item => {
                     if (!item[fieldPosition]) return;
                     delete item[fieldPosition];
@@ -281,7 +348,8 @@ export async function removeField(tableId: IDBValidKey, field: Field, fieldPosit
 }
 
 export async function removeFieldMetadata(tableId: IDBValidKey, field: Field, fieldPosition?: number) {
-    await removeField(tableId, field);
+    await removeField(tableId, field, fieldPosition);
+    if (fieldPosition !== undefined) await shiftItemsSide(tableId, fieldPosition, false);
     const db = await openDB();
     return new Promise<Field[]>((resolve, reject) => {
         const tx = db.transaction(METADATA_STORE_NAME, "readwrite");
@@ -292,8 +360,9 @@ export async function removeFieldMetadata(tableId: IDBValidKey, field: Field, fi
             if (table) {
                 if (field.id) {
                     table.fields = table.fields.filter((f) => f.id !== field.id);
-                } else if (fieldPosition) {
+                } else if (fieldPosition !== undefined) {
                     table.fields = table.fields.filter((f, index) => index !== fieldPosition);
+                    console.log(table);
                 }
                 const updateReq = store.put(table);
                 if (table.fields.length === 0) {
@@ -323,7 +392,7 @@ export async function addFieldMetadata(tableId: IDBValidKey, field: Field, field
                 let oldField;
                 if (field.id) {
                     oldField = table.fields.find((f)=>f.id === field.id);
-                } else if (fieldPosition) {
+                } else if (fieldPosition !== undefined) {
                     oldField = table.fields[fieldPosition];
                 }
                 if (oldField) {
@@ -407,4 +476,112 @@ export async function getAllTableMetadata(): Promise<Table[]> {
         tx.oncomplete = () => db.close();
         tx.onerror = () => reject(tx.error);
     });
+}
+
+
+/**
+ * Exports all tables and their data to a single JSON file and triggers a download.
+ */
+export async function exportDataToJson() {
+    try {
+        const allMetadata = await getAllTableMetadata();
+        const exportData = [];
+
+        for (const metadata of allMetadata) {
+            if (metadata.id) {
+                const items = await getTable(metadata.id);
+                exportData.push({ metadata, items });
+            }
+        }
+
+        const jsonString = JSON.stringify(exportData, null, 2);
+        const blob = new Blob([jsonString], { type: 'application/json' });
+        const url = URL.createObjectURL(blob);
+
+        const a = document.createElement('a');
+        a.href = url;
+        a.download = `notesheet-backup-${new Date().toISOString().slice(0, 10)}.json`;
+        document.body.appendChild(a);
+        a.click();
+        document.body.removeChild(a);
+        URL.revokeObjectURL(url);
+    } catch (error) {
+        console.error("Failed to export data:", error);
+        alert("Failed to export data. See console for details.");
+    }
+}
+
+/**
+ * Imports data from a JSON string, wiping the existing database and restoring the state.
+ * @param jsonString The JSON string containing the backup data.
+ */
+export async function importDataFromJson(jsonString: string): Promise<void> {
+    if (!confirm("This will clear all existing data. Are you sure you want to proceed?")) {
+        return;
+    }
+    try {
+        const importData: { metadata: Table, items: Item[] }[] = JSON.parse(jsonString);
+
+        if (!Array.isArray(importData) || !importData.every(d => d.metadata && d.items !== undefined)) {
+            throw new Error("Invalid JSON format for import.");
+        }
+
+        await resetDB();
+
+        const db = await openDB();
+        const version = db.version + 1;
+        db.close();
+
+        const openRequest = indexedDB.open(DB_NAME, version);
+
+        return new Promise<void>((resolve, reject) => {
+            openRequest.onupgradeneeded = (event) => {
+                const upgradeDb = (event.target as IDBOpenDBRequest).result;
+                for (const { metadata } of importData) {
+                    if (metadata.id && !upgradeDb.objectStoreNames.contains(metadata.id.toString())) {
+                        const store = upgradeDb.createObjectStore(metadata.id.toString(), { keyPath: 'id' });
+                        store.createIndex('idIndex', 'id', { unique: true });
+                    }
+                }
+            };
+
+            openRequest.onsuccess = async () => {
+                const newDb = openRequest.result;
+                const tableIds = importData.map(({ metadata }) => metadata.id!.toString()).filter(Boolean);
+
+                const metadataTx = newDb.transaction(METADATA_STORE_NAME, 'readwrite');
+                const metadataStore = metadataTx.objectStore(METADATA_STORE_NAME);
+                importData.forEach(({ metadata }) => metadataStore.put(metadata));
+
+                await new Promise(res => metadataTx.oncomplete = res);
+
+                if (tableIds.length > 0) {
+                    const dataTx = newDb.transaction(tableIds, 'readwrite');
+                    importData.forEach(({ metadata, items }) => {
+                        if (metadata.id) {
+                            const itemStore = dataTx.objectStore(metadata.id.toString());
+                            items.forEach(item => itemStore.put(item));
+                        }
+                    });
+                    dataTx.oncomplete = () => {
+                        newDb.close();
+                        resolve();
+                    };
+                    dataTx.onerror = () => {
+                        newDb.close();
+                        reject(dataTx.error);
+                    };
+                } else {
+                    newDb.close();
+                    resolve();
+                }
+            };
+
+            openRequest.onerror = () => reject(openRequest.error);
+        });
+    } catch (error) {
+        console.error("Failed to import data:", error);
+        alert("Failed to import data. Check file format and console for details.");
+        throw error;
+    }
 }

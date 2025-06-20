@@ -15,8 +15,8 @@
 }
 
 .tri-state-checkbox[data-state='2'] {
-    background-color: green;
-    border-color: green;
+    background-color: color-mix(in srgb, var(--color) 50%, black);
+    border-color: color-mix(in srgb, var(--color) 50%, black);
 }
 
 .tri-state-checkbox[data-disabled='true'] {

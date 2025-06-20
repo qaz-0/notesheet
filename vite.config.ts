@@ -13,7 +13,8 @@ export default defineConfig({
       manifest: {
         name: 'Notesheet',
         short_name: 'Notesheet',
-        start_url: '/',
+        start_url: '/notesheet',
+        description: 'Notebook + spreadsheet',
         display: 'standalone',
         background_color: '#ffffff',
         theme_color: '#3b82f6',

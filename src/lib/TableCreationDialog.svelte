@@ -3,109 +3,149 @@
 <script lang="ts">
     import type { Table } from './types';
 
-    // Use $props() rune to declare props
     let { onCreateRequested, onClose } = $props<{
         onCreateRequested: (details: Omit<Table, 'fields'>) => void;
         onClose: () => void;
     }>();
 
-    let name = $state('');
-    let color = $state('#ff0000'); // Default red
-    let secondaryColor = $state('#ff0000'); // Default red
-    let dialogElement: HTMLDialogElement | undefined = $state();
+    const primaryColors = [
+        '#70ad47', '#ed7d31', '#bd2be5', '#ff3d3d', '#ffc000', '#4a90e2',
+        '#50c878', '#f39c12', '#9b59b6', '#ff6b6b', '#dab83c', '#659ad9',
+    ];
+
+    const secondaryColors = [
+        '#263b19', '#4c2408', '#4e0d5b', '#892a2a', '#4c4100', '#1e3a5f',
+        '#1a4d2e', '#3d2b1f', '#5d2e6b', '#b83a3a', '#6b6228', '#2b4d6b',
+    ];
+
+    let name = $state('new table');
+    let color = $state(primaryColors[0]);
+    let secondaryColor = $state(secondaryColors[0]);
+    let isVisible = $state(false);
+
 
     $effect(() => {
-        dialogElement?.showModal();
+        setTimeout(() => {
+            isVisible = true;
+
+        }, 10);
     });
 
-    // Called ONLY when the dialog's native 'close' event fires.
-    function handleDialogClose() {
-        // Check if the dialog was closed via the "Create" button's submission
-        if (dialogElement?.returnValue === 'create') {
-            if (name.trim()) {
-                // Call the parent's callback function with the data
-                onCreateRequested({ name: name.trim(), color, secondaryColor });
-            } else {
-                // Handle case where required field is empty on submit
-                alert('Table name cannot be empty.');
-                // Consider preventing close or re-opening if validation fails,
-                // but for now, we just alert and proceed to close.
-            }
+    function handleSubmit() {
+        if (name.trim()) {
+            onCreateRequested({ name: name.trim(), color, secondaryColor });
+            onClose();
+        } else {
+            alert('Table name cannot be empty.');
         }
-        // Always notify the parent that the dialog has closed.
+    }
+
+    function handleCancel() {
         onClose();
     }
 
-    // Function to explicitly close the dialog (e.g., via Cancel button or backdrop click)
-    function triggerClose() {
-        dialogElement?.close(); // This triggers the 'close' event, calling handleDialogClose
-    }
-
-    // Close dialog on backdrop click (using on:click directive)
-    function handleClick(event: MouseEvent) {
-        // Ensure the click is directly on the dialog backdrop, not on its children
-        if (event.currentTarget === event.target && event.currentTarget === dialogElement) {
-            triggerClose();
+    // Close on Escape key
+    function handleKeydown(event: KeyboardEvent) {
+        if (event.key === 'Escape') {
+            handleCancel();
         }
     }
 
-    // Close dialog on Escape key
-    function handleKeydown(event: KeyboardEvent) {
-        if (event.key === 'Escape') {
-             // Native behavior closes on Escape, triggering 'close' event.
-             // Explicit call might be redundant but ensures our logic runs if needed.
-             triggerClose();
+    function setColor(selectedColor: string, isPrimary: boolean) {
+        if (isPrimary) {
+            color = selectedColor;
+            // Find the index and set corresponding secondary color
+            const index = primaryColors.indexOf(selectedColor);
+            if (index !== -1 && index < secondaryColors.length) {
+                secondaryColor = secondaryColors[index];
+            }
+        } else {
+            secondaryColor = selectedColor;
         }
     }
 </script>
 
 <svelte:window on:keydown={handleKeydown} />
-
-<!-- Use on:click for backdrop click -->
-<!-- Use on:close to handle the dialog closing and decide action -->
-<dialog bind:this={dialogElement} onclick={handleClick} onclose={handleDialogClose}>
-    <h2>Create New Table</h2>
-    <!-- Use standard form submission with method="dialog" -->
-    <!-- Remove on:submit handler -->
-    <form method="dialog">
+<div class="modal" class:visible={isVisible}>
+    <form onsubmit={handleSubmit}>
         <div>
-            <label for="tableName">Table Name:</label>
-            <input type="text" id="tableName" bind:value={name} required />
+            <div class="table-name-section">
+                <label for="tableName">> </label>
+                <input type="text" autocomplete="off" id="tableName" bind:value={name} required />
+            </div>
         </div>
         <div>
-            <label for="primaryColor">Primary Color:</label>
-            <input type="color" id="primaryColor" bind:value={color} />
+            <div class="color-section">
+                <div class="color-input-container">
+                    <input type="color" id="primaryColor" bind:value={color} />
+                    <label for="primaryColor" class="color-label primary-label">primary color</label>
+                </div>
+                <div class="color-grid">
+                    {#each primaryColors as defaultColor}
+                        <button
+                            type="button"
+                            class="color-square"
+                            style="background-color: {defaultColor}"
+                            aria-label="Set primary color to {defaultColor}"
+                            onclick={() => setColor(defaultColor, true)}
+                        ></button>
+                    {/each}
+                </div>
+            </div>
         </div>
         <div>
-            <label for="secondaryColor">Secondary Color:</label>
-            <input type="color" id="secondaryColor" bind:value={secondaryColor} />
+            <div class="color-section">
+                <div class="color-input-container">
+                    <input type="color" id="secondaryColor" bind:value={secondaryColor} />
+                    <label for="secondaryColor" class="color-label secondary-label">secondary color</label>
+                </div>
+                <div class="color-grid">
+                    {#each secondaryColors as defaultColor}
+                        <button
+                            type="button"
+                            class="color-square"
+                            style="background-color: {defaultColor}"
+                            aria-label="Set secondary color to {defaultColor}"
+                            onclick={() => setColor(defaultColor, false)}
+                        ></button>
+                    {/each}
+                </div>
+            </div>
         </div>
         <footer>
-            <!-- Use on:click for the cancel button -->
-            <button type="button" onclick={triggerClose}>Cancel</button>
-            <!-- Create button submits the form, closing the dialog with returnValue='create' -->
-            <button type="submit" value="create">Create</button>
+            <button type="button" class="menu" onclick={handleCancel}>Cancel</button>
+            <button type="submit" class="menu">Create</button>
         </footer>
     </form>
-</dialog>
+</div>
 
 <style>
-    dialog {
-        border: 1px solid #ccc;
+    .modal {
+        position: absolute;
+        top: 50%;
+        left: calc(100% + 1em);
+        background: white;
+        border: 3px solid black;
+        background-color: color-mix(in srgb, var(--background-color), transparent 20%);
+        color: var(--color);
+        text-shadow:
+            0 0 2px rgba(0, 0, 0, 0.25),
+            0 0 6px rgba(0, 0, 0, 0.15),
+            0 0 12px rgba(0, 0, 0, 0.05);
+        backdrop-filter: blur(10px);
         border-radius: 8px;
         padding: 20px;
         box-shadow: 0 4px 8px rgba(0, 0, 0, 0.1);
         min-width: 300px;
+        max-width: 500px;
+        transform: translateY(-50%) translateX(-20px) scale(0.95);
+        transition: transform 0.3s ease, opacity 0.3s ease;
+        opacity: 0;
     }
 
-    dialog::backdrop {
-        background-color: rgba(0, 0, 0, 0.5);
-    }
-
-    h2 {
-        margin-top: 0;
-        margin-bottom: 20px;
-        text-align: center;
+    .modal.visible {
+        transform: translateY(-50%) translateX(0) scale(1);
+        opacity: 1;
     }
 
     form div {
@@ -115,21 +155,63 @@
     label {
         display: block;
         margin-bottom: 5px;
-        font-weight: bold;
     }
 
-    input[type="text"],
+    input[type="text"] {
+        width: 10em;
+        font-size: x-large;
+        border: none;
+        background-color: transparent;
+        outline: none;
+    }
+
     input[type="color"] {
         width: 100%;
-        padding: 8px;
+        outline: none;
+        padding: 0px;
+        border: none;
         box-sizing: border-box;
-        border: 1px solid #ccc;
         border-radius: 4px;
+        height: 2.3em;
+        margin-bottom: 10px;
     }
 
-     input[type="color"] {
-        height: 40px; /* Adjust height for color input */
-        padding: 2px; /* Minimal padding for color input */
+    input[type="color"]::-moz-color-swatch {
+        border: none;
+    }
+
+    input[type="color"]::-webkit-color-swatch-wrapper {
+        padding: 0;
+        border-radius: 0;
+    }
+
+    input[type="color"]::-webkit-color-swatch {
+        border: none;
+    }
+
+    .color-section {
+        display: flex;
+        flex-direction: column;
+        gap: 10px;
+    }
+
+    .color-grid {
+        display: grid;
+        grid-template-columns: repeat(6, 1fr);
+        gap: 8px;
+    }
+
+    .color-square {
+        width: 30px;
+        height: 30px;
+        border: 2px solid black;
+        border-radius: 4px;
+        cursor: pointer;
+        transition: transform 0.2s ease, border-color 0.2s ease;
+    }
+
+    .color-square:hover {
+        transform: scale(1.1);
     }
 
     footer {
@@ -139,19 +221,38 @@
         margin-top: 20px;
     }
 
-    button {
-        padding: 8px 15px;
-        border: none;
-        border-radius: 4px;
-        cursor: pointer;
+    button.menu[type="submit"] {
+        background-color: #51ff001a;
     }
 
-    button[type="submit"] {
-        background-color: #007bff;
-        color: white;
+    .color-input-container {
+        position: relative;
     }
 
-    button[type="button"] {
-        background-color: #ccc;
+    .color-label {
+        position: absolute;
+        top: 4px;
+        left: 10px;
+        pointer-events: none;
+        z-index: 1;
+    }
+
+    .table-name-section {
+        display: flex;
+        align-items: center;
+    }
+
+    .table-name-section label {
+        margin-right: 10px;
+        font-weight: 1000;
+        margin-bottom: 0;
+    }
+
+    .primary-label {
+        color: black;
+    }
+
+    .secondary-label {
+        color: var(--color-state-1);
     }
 </style>

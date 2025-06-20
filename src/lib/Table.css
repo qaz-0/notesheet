@@ -17,6 +17,9 @@
 
 .table caption > span {
     padding: 0 20px;
+    margin: 0 5px;
+    overflow: hidden;
+    white-space: nowrap;
     cursor: text;
 }
 
@@ -28,6 +31,7 @@
     box-sizing: content-box;
     overflow: hidden;
     vertical-align: top;
+    padding: 0px;
     width: attr(data-size type(<length>));
 }
 
@@ -51,17 +55,13 @@
     border: 2px dashed black;
     padding: 0 5px;
     word-break: break-word;
-    white-space: pre-wrap;
     vertical-align: top;
 }
 
 .table .edit {
+    white-space: pre-wrap;
     outline: none;
     resize: none;
-}
-
-.table tr:has(> td > .tri-state-checkbox[data-disabled="true"]) {
-    /* background-color: red; */
 }
 
 .table td:has(> .tri-state-checkbox) {
@@ -72,11 +72,15 @@
 
 .table tr:has(> td > .tri-state-checkbox[data-state="1"]) {
     background-color: var(--secondary-color);
-    color: #a9a9a9;
+    color: var(--color-state-1);
 }
 .table tr:has(> td > .tri-state-checkbox[data-state="2"]) {
-    color: #a9a9a930;
+    color: var(--color-state-2);
     background-color: color-mix(in srgb, var(--background-color) 80%, black)
+}
+
+.table tr:has(> td > .tri-state-checkbox[data-disabled="true"]) {
+    background-color: transparent;
 }
 
 .table-container {

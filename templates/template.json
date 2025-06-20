@@ -1,0 +1,129 @@
+[
+  {
+    "metadata": {
+      "name": "todo",
+      "color": "#70ad47",
+      "secondaryColor": "#263b19",
+      "fields": [
+        {
+          "id": "c",
+          "name": "c",
+          "size": 100
+        },
+        {
+          "name": "date",
+          "size": 137
+        },
+        {
+          "name": "item",
+          "size": 354
+        },
+        {
+          "name": "note",
+          "size": 206
+        }
+      ],
+      "id": 1
+    },
+    "items": []
+  },
+  {
+    "metadata": {
+      "name": "upcoming",
+      "color": "#ed7d31",
+      "secondaryColor": "#4c2408",
+      "fields": [
+        {
+          "id": "c",
+          "name": "c",
+          "size": 100
+        },
+        {
+          "name": "date",
+          "size": 139
+        },
+        {
+          "name": "item",
+          "size": 298
+        },
+        {
+          "name": "note",
+          "size": 221
+        }
+      ],
+      "id": 2
+    },
+    "items": []
+  },
+  {
+    "metadata": {
+      "name": "watchlist",
+      "color": "#ff3d3d",
+      "secondaryColor": "#892a2a",
+      "fields": [
+        {
+          "id": "c",
+          "name": "c",
+          "size": 100
+        },
+        {
+          "name": "item",
+          "size": 270
+        },
+        {
+          "name": "note",
+          "size": 144
+        }
+      ],
+      "id": 3
+    },
+    "items": []
+  },
+  {
+    "metadata": {
+      "name": "ideas",
+      "color": "#ffc000",
+      "secondaryColor": "#4c4100",
+      "fields": [
+        {
+          "id": "c",
+          "name": "c",
+          "size": 100
+        },
+        {
+          "name": "item",
+          "size": 295
+        },
+        {
+          "name": "note",
+          "size": 195
+        }
+      ],
+      "id": 4
+    },
+    "items": []
+  },
+  {
+    "metadata": {
+      "name": "history",
+      "color": "#a1a1a1",
+      "secondaryColor": "#404040",
+      "fields": [
+        {
+          "name": "date",
+          "size": 149
+        },
+        {
+          "name": "item",
+          "size": 326
+        },
+        {
+          "name": "note",
+          "size": 191
+        }
+      ],
+      "id": 5
+    },
+    "items": []
+  }
+]

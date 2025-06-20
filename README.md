@@ -1,27 +1,39 @@
 # Notesheet
-Notebook + spreadsheet
+notebook + spreadsheet + todo list
+
+## templates
+- use this templates to get started: [basic template]()
+
+- to reset everything: [empty template]()
 
 ## how 2 use
-- create a table with the big plus button
+
+### table
+- create a table with the big plus button on the right side
+- create a table called "history" or "History" to save history, it will save the data with the same column name
+- click on the table name to edit its name
+
+### cell
 - write in any cell
-- click the square to mark as in progress or done
-- press the table caption to edit table
-- in edit mode, hover over the last line and click the small plus to create a column
-- in edit mode, click on column name and press delete to delete the column
-- delete all columns to delete the table
+- click the square to mark as in progress or done, done items will clear on refresh
+- write "m" in the last line of the cell to render markdown
 - navigate with arrow keys, tab and alt key
 
-### colour suggestions (primary, secondary)
-- green: #70ad47, #263b19
-- orange: #ed7d31, #4c2408
-- purple: #bd2be5, #4e0d5b
+### edit mode
+- click on the table caption (not the name) to enter edit mode for the table
+- hover over the right end of the table and click the small plus to create a column
+- click on column name to change its name and press delete to delete the column
+- drag the right border of a column near the top to resize it
+- delete all columns to delete the table
 
+## security
+- all data is stored locally in the browser unless exported
+- markdown does not render html; it is safe to import other notes
 
 ## todo
 - time sensitive table
-- column resize, rename
-- table rename
 - google drive sync
-- local export
-- markdown
-- pwa
+- column and table reordering
+
+## known bugs
+- history table needs two refreshes to update
