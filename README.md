@@ -2,9 +2,9 @@
 notebook + spreadsheet + todo list
 
 ## templates
-- use this templates to get started: [basic template]()
+- use this templates to get started: [basic template](https://github.com/qazicopulous/notesheet/blob/main/templates/template.json)
 
-- to reset everything: [empty template]()
+- to reset everything: [empty template](https://github.com/qazicopulous/notesheet/blob/main/templates/empty.json)
 
 ## how 2 use
 
