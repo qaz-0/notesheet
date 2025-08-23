@@ -4,7 +4,8 @@ import { VitePWA } from 'vite-plugin-pwa'
 import tailwindcss from '@tailwindcss/vite';
 
 export default defineConfig({
-  base: '/notesheet/',
+  // base: '/notesheet/',
+  base: '/',
   plugins: [
     tailwindcss(),
     svelte(),
@@ -13,7 +14,8 @@ export default defineConfig({
       manifest: {
         name: 'Notesheet',
         short_name: 'Notesheet',
-        start_url: '/notesheet',
+        // start_url: '/notesheet',
+        start_url: '/',
         description: 'Notebook + spreadsheet',
         display: 'standalone',
         background_color: '#ffffff',

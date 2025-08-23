@@ -27,6 +27,7 @@ notebook + spreadsheet + todo list
 - delete all columns to delete the table
 
 ## security
+- app can be installed as pwa and can be used offline
 - all data is stored locally in the browser unless exported
 - markdown does not render html; it is safe to import other notes
 
