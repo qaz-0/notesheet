@@ -132,38 +132,37 @@ export async function getHistoryTableMetadata(): Promise<Table | null> {
 }
 
 export async function deleteItem(tableId: IDBValidKey, id: IDBValidKey) {
-    let tableStoreName = tableId.toString()
     const item = await getItemById(tableId, id);
+    if (!item) {
+        return false;
+    }
+
     const tableMetadata = await getTableMetadata(tableId);
-    await shiftItems(tableId, id, true);
     const fields = (await getTableMetadata(tableId)).fields;
 
     let historyTableMetadata = await getHistoryTableMetadata();
     if (historyTableMetadata) {
         let hTableId = historyTableMetadata.id!;
         let hTableFields = historyTableMetadata.fields;
+        console.log("shift down");
         await shiftItems(hTableId, 0, false);
 
-        const db = await openDB();
-        return new Promise(async (resolve, reject) => {
-            const tx = db.transaction(tableStoreName, "readwrite");
-            const historyItem: Item = { id: 0, k: tableMetadata.secondaryColor};
+        const historyItem: Item = { id: 0, k: tableMetadata.secondaryColor};
 
-            if (item) {
-                for (let i = 0; i < hTableFields.length; i++) {
-                    let hTableField = hTableFields[i];
-                    if (hTableField.id) continue;
-                    let key = fields.findIndex((f) => f.name == hTableField.name);
-                    if (key) {
-                        historyItem[i] = item[key];
-                    }
+        if (item) {
+            for (let i = 0; i < hTableFields.length; i++) {
+                let hTableField = hTableFields[i];
+                if (hTableField.id) continue;
+                let keyIndex = fields.findIndex((f) => f.name == hTableField.name);
+                if (keyIndex !== -1) {
+                    historyItem[i] = item[keyIndex];
                 }
-                editItem(hTableId, historyItem);
             }
-            tx.oncomplete = () => resolve(true);
-            tx.onerror = () => reject(tx.error);
-        });
+            await editItem(hTableId, historyItem);
+        }
     }
+    console.log("shift up");
+    await shiftItems(tableId, id, true);
 }
 
 export async function shiftItems(tableId: IDBValidKey, id: IDBValidKey, up: boolean = true) {

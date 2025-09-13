@@ -6,11 +6,14 @@
     import { getAllTableMetadata, createTable, deleteTable, resetDB, exportDataToJson, importDataFromJson } from './lib/db';
     import TableCreationDialog from './lib/TableCreationDialog.svelte';
     import PwaReloadPrompt from './lib/PwaReloadPrompt.svelte';
+    import { setContext } from 'svelte';
 
     let tables: TableMeta[] = $state([]);
     let historyTable: TableMeta | null = $state(null);
     let showCreateDialog = $state(false);
     let fileInput: HTMLInputElement;
+    let tableCount = $state({ value: 0 });
+    setContext('tableCount', () => tableCount);
 
     function openAddTableDialog() {
         showCreateDialog = true;
@@ -121,7 +124,7 @@
         {#each tables as table}
             <Table {table}></Table>
         {/each}
-        {#if historyTable}
+        {#if historyTable && tableCount.value == tables.length}
             <Table table={historyTable}></Table>
         {/if}
         <div class="add-table-container">

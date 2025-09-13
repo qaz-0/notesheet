@@ -18,4 +18,14 @@ export interface Table {
     fields: Field[];
 }
 
+export enum Direction {
+    Up,
+    Down,
+    Left,
+    Right,
+    UpOrDown,
+    LeftOrRight,
+    Closest
+}
+
 export type CheckboxState = undefined | 0 | 1 | 2;

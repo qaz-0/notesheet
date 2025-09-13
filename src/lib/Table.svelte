@@ -1,37 +1,43 @@
 <script lang="ts">
     import './Table.css';
     import plusIcon from '../assets/square-plus.svg';
-    import { getTable, editItem, getItemById, getAllTableMetadata, addFieldMetadata, removeFieldMetadata, deleteItem, deleteTable, getTableMetadata, setTableMetadata } from './db';
-    import type { CheckboxState, Field, Item, Table } from './types';
+    import { getTable, editItem, getItemById, getAllTableMetadata, addFieldMetadata, removeFieldMetadata, deleteItem, deleteTable, getTableMetadata, setTableMetadata, shiftItems } from './db';
+    import { Direction, type CheckboxState, type Field, type Item, type Table } from './types';
     import Checkbox from './Checkbox.svelte';
     import markdownit from 'markdown-it'
+    import { getContext } from 'svelte';
 
     let { table }: { table: Table } = $props();
     const tableId = table.id!;
     const md = markdownit();
     let tableData: (Item | null)[] = $state([]);
     let fields: Field[] = $state(table.fields);
-    let fieldsKey = $state(0); // Add reactive key for forcing re-renders
+    let fieldsKey = $state(0);
     let isEditing = $state(false);
     let checkboxIndex = table.fields.findIndex((f) => f.id == "c");
     let tableContainer: HTMLElement;
     let resizingColumnIndex: number | null = $state(null);
     let startX: number;
     let startWidth: number;
+    let isHistory = table.name.toLowerCase() == "history";
     const MIN_COLUMN_WIDTH = 20;
+    const ADDITIONAL_ROWS = isHistory ? 0 : 10;
+    let tableCount = getContext<() => any>('tableCount');
 
     async function loadTableData() {
         const newTableData = [];
         const data = await getTable(tableId);
+        let maxIndex = data[data.length - 1]?.id as number ?? 0;
+        // let maxIndex = data[data.length - 1].id as number;
         checkboxIndex = fields.findIndex((f) => f.id == "c");
 
         let dataIdx = 0;
         let rowNum = 0;
-        for (let i = 0; i < 100; i++) {
+        for (let i = 0; i < maxIndex + ADDITIONAL_ROWS; i++) {
             let item = data[dataIdx];
             if (item && item.id == i) {
                 if (item.c == 2) {
-                    deleteItem(tableId, i);
+                    await deleteItem(tableId, rowNum);
                 } else {
                     newTableData.push(item);
                     rowNum++
@@ -44,9 +50,11 @@
         }
 
         tableData = newTableData;
+
     }
 
     loadTableData();
+    if (table.name.toLowerCase() != "history") tableCount().value++;
 
     function startResize(event: PointerEvent, index: number) {
         if (!isEditing) return;
@@ -150,13 +158,44 @@
         }
     }
 
-    function navigate(currentCell: HTMLTableCellElement, event: KeyboardEvent): { nextCell: HTMLTableCellElement | null, isCheckbox: boolean, goToStart?: boolean } {
-        const row = currentCell.parentElement as HTMLTableRowElement;
+    function getCell(currentCell: HTMLTableCellElement, direction: Direction): HTMLTableCellElement | null {
+        let nextCell: HTMLTableCellElement | null = null;
+        switch (direction) {
+            case Direction.Up:
+                const prevRow = currentCell.parentElement?.previousElementSibling as HTMLTableRowElement;
+                if (prevRow?.hasAttribute("data-row")) {
+                    nextCell = prevRow.children[currentCell.cellIndex] as HTMLTableCellElement;
+                }
+                break;
+            case Direction.Down:
+                const nextRow = currentCell.parentElement?.nextElementSibling as HTMLTableRowElement;
+                if (nextRow?.hasAttribute("data-row")) {
+                    nextCell = nextRow.children[currentCell.cellIndex] as HTMLTableCellElement;
+                }
+                break;
+            case Direction.Left:
+                const prevSibling = currentCell.previousElementSibling;
+                if (prevSibling && (prevSibling.tagName === 'TD' || prevSibling.tagName === 'TH')) {
+                    nextCell = prevSibling as HTMLTableCellElement;
+                }
+                break;
+            case Direction.Right:
+                const nextSibling = currentCell.nextElementSibling;
+                if (nextSibling && (nextSibling.tagName === 'TD' || nextSibling.tagName === 'TH')) {
+                    nextCell = nextSibling as HTMLTableCellElement;
+                }
+                break;
+        }
+        return nextCell;
+    }
+
+    function navigate(currentCell: HTMLTableCellElement, event: KeyboardEvent, direction?: Direction): { nextCell: HTMLTableCellElement | null, isCheckbox: boolean, goToStart?: boolean } {
+        // const row = currentCell.parentElement as HTMLTableRowElement;
         const cellIndex = currentCell.cellIndex;
         const selection = window.getSelection();
 
         let isAtStart = false, isAtEnd = false;
-        let bypass = event.altKey || event.key === "Tab" || currentCell.cellIndex === checkboxIndex;
+        let bypass = event.altKey || event.key === "Tab" || cellIndex === checkboxIndex;
 
         if (!bypass && selection && selection.rangeCount && selection.isCollapsed) {
             const selRange = selection.getRangeAt(0);
@@ -172,36 +211,56 @@
             isAtEnd = (endStr === "" || endStr === "\n");
         }
 
+        if (!direction) {
+            switch (event.key) {
+                case "ArrowUp":
+                    direction = Direction.Up;
+                    break;
+                case "ArrowDown":
+                    direction = Direction.Down;
+                    break;
+                case "ArrowLeft":
+                    direction = Direction.Left;
+                    break;
+                case "ArrowRight":
+                    direction = Direction.Right;
+                    break;
+                case "Tab":
+                    direction = event.shiftKey ? Direction.Left : Direction.Right;
+                    break;
+                default:
+                    return { nextCell: null, isCheckbox: false }
+            }
+        }
+
         let nextCell: HTMLTableCellElement | null = null;
         let goToStart: boolean | undefined = undefined;
         let isCheckbox = false;
 
+        if (direction == Direction.UpOrDown) {
+            let tempNextCell = getCell(currentCell, Direction.Down);
+            if (tempNextCell == null) tempNextCell = getCell(currentCell, Direction.Up);
+            goToStart = isAtStart || !isAtEnd
+            nextCell = tempNextCell
+        }
+
         if (isAtEnd || bypass) {
-            if (event.key === "ArrowDown") {
-                const nextRow = row.nextElementSibling as HTMLTableRowElement;
-                if (nextRow?.hasAttribute("data-row")) {
-                    nextCell = nextRow.children[cellIndex] as HTMLTableCellElement;
-                    goToStart = false;
-                }
-            } else if (event.key === "ArrowRight" || (event.key === "Tab" && !event.shiftKey)) {
-                nextCell = currentCell.nextElementSibling as HTMLTableCellElement;
+            if (direction == Direction.Down) {
+                nextCell = getCell(currentCell, Direction.Down);
                 goToStart = false;
+            } else if (direction == Direction.Right) {
+                nextCell = getCell(currentCell, Direction.Right)
+                goToStart = false
             }
         }
 
         if (isAtStart || bypass) {
-            if (event.key === "ArrowUp") {
-                const prevRow = row.previousElementSibling as HTMLTableRowElement;
-                if (prevRow?.hasAttribute("data-row")) {
-                    nextCell = prevRow.children[cellIndex] as HTMLTableCellElement;
-                    goToStart = true;
-                }
-            } else if (event.key === "ArrowLeft" || (event.key === "Tab" && event.shiftKey)) {
-                const prevSibling = currentCell.previousElementSibling;
-                if (prevSibling && (prevSibling.tagName === 'TD' || prevSibling.tagName === 'TH')) {
-                    nextCell = prevSibling as HTMLTableCellElement;
-                    goToStart = true;
-                }
+            if (direction == Direction.Up) {
+                nextCell = getCell(currentCell, Direction.Up);
+                goToStart = true
+            } else if (direction == Direction.Left) {
+                nextCell = getCell(currentCell, Direction.Left)
+                goToStart = true
             }
         }
 
@@ -216,7 +275,7 @@
         return { nextCell, isCheckbox, goToStart };
     }
 
-    function focusCell(cell: HTMLTableCellElement) {
+function focusCell(cell: HTMLTableCellElement) {
         const focusableChild = cell.querySelector('[tabindex="0"]') as HTMLElement | null;
         focusableChild?.focus();
 
@@ -276,46 +335,78 @@
         }, 0);
 
         const keydownHandler = async (event: KeyboardEvent) => {
-            const navResult = navigate(cell, event);
+            let direction: Direction | undefined;
+            let navResult;
+            switch (event.key) {
+                case "Delete":
 
-            if (navResult.nextCell) {
-                await finishEdit(false);
-                if (navResult.isCheckbox) {
-                    focusCell(navResult.nextCell);
-                } else {
-                    let isHeader = cell.tagName === 'TH';
-                    editCell(navResult.nextCell, isHeader, navResult.goToStart);
-                }
-            } else if (event.key === "Escape") {
-                event.preventDefault();
-                await finishEdit(true, originalText);
-            } else if (isHeader && event.key === "Delete") {
-                event.preventDefault();
-                await finishEdit(true, originalText);
+                    event.preventDefault();
 
-                console.log(cell.cellIndex)
-                const fieldToRemove = fields[cell.cellIndex];
-                if (fieldToRemove && confirm(`Are you sure you want to delete the column "${fieldToRemove.name}"?`)) {
-                    await removeFieldMetadata(tableId, fieldToRemove, cell.cellIndex);
-                    fields = fields.filter(field => field !== fieldToRemove);
+                    // delete row
+                    if (!isHeader) {
+                        if (confirm(`Are you sure you want to delete row ${rowNum}?`)) {
+                            direction = Direction.UpOrDown
 
-                    checkboxIndex = fields.findIndex((f) => f.id == "c");
+                            await finishEdit(true);
+                            await shiftItems(tableId, rowNum, true)
+                            await loadTableData();
+                            navResult = navigate(cell, event, direction);
+                            if (navResult?.nextCell)
+                                editCell(cell, false, navResult.goToStart);
 
-                    console.log(fields.length)
-                    if (fields.length === 0) {
-                        console.log("remove", tableContainer);
-                        tableContainer.remove();
-                        await deleteTable(tableId);
-                        console.log("remove", tableContainer);
-                    } else {
-                        fieldsKey++;
-                        loadTableData();
+                        }
+                        break;
                     }
-                }
-            } else if (isHeader && event.key === "Enter") {
-                event.preventDefault();
-                await finishEdit();
+
+                    await finishEdit(true, originalText);
+                    console.log(cell.cellIndex)
+                    const fieldToRemove = fields[cell.cellIndex];
+                    if (fieldToRemove && confirm(`Are you sure you want to delete the column "${fieldToRemove.name}"?`)) {
+                        await removeFieldMetadata(tableId, fieldToRemove, cell.cellIndex);
+                        fields = fields.filter(field => field !== fieldToRemove);
+
+                        checkboxIndex = fields.findIndex((f) => f.id == "c");
+
+                        console.log(fields.length)
+                        if (fields.length === 0) {
+                            console.log("remove", tableContainer);
+                            tableContainer.remove();
+                            await deleteTable(tableId);
+                            console.log("remove", tableContainer);
+                        } else {
+                            fieldsKey++;
+                            loadTableData();
+                        }
+                    }
+                    break;
+                case "Escape":
+                    event.preventDefault();
+                    await finishEdit(true, originalText);
+                    break;
+                case "Enter":
+                    if (isHeader) {
+                        event.preventDefault();
+                        await finishEdit();
+                    }
+                default:
+                    navResult = navigate(cell, event, direction);
+                    if (navResult?.nextCell) {
+                        await finishEdit(false);
+                        if (navResult.isCheckbox) {
+                            focusCell(navResult.nextCell);
+                        } else {
+                            editCell(navResult.nextCell, isHeader, navResult.goToStart);
+                        }
+                    }
+                    break;
             }
+
+            // } else if (event.key === "Escape") {
+
+            // } else if (event.key === "Delete") {
+
+            // } else if (isHeader && event.key === "Enter") {
+            // }
         };
 
         const blurHandler = () => {
