@@ -189,15 +189,11 @@
         return nextCell;
     }
 
-    function navigate(currentCell: HTMLTableCellElement, event: KeyboardEvent, direction?: Direction): { nextCell: HTMLTableCellElement | null, isCheckbox: boolean, goToStart?: boolean } {
-        // const row = currentCell.parentElement as HTMLTableRowElement;
-        const cellIndex = currentCell.cellIndex;
+    function isAtStartEnd(currentCell: HTMLTableCellElement): { isAtStart: boolean, isAtEnd: boolean } {
         const selection = window.getSelection();
-
         let isAtStart = false, isAtEnd = false;
-        let bypass = event.altKey || event.key === "Tab" || cellIndex === checkboxIndex;
 
-        if (!bypass && selection && selection.rangeCount && selection.isCollapsed) {
+        if (selection && selection.rangeCount && selection.isCollapsed) {
             const selRange = selection.getRangeAt(0);
             const testRange = selRange.cloneRange();
 
@@ -209,6 +205,20 @@
             testRange.setStart(selRange.endContainer, selRange.endOffset);
             const endStr = testRange.toString();
             isAtEnd = (endStr === "" || endStr === "\n");
+        }
+
+        return { isAtStart, isAtEnd };
+    }
+
+    function navigate(currentCell: HTMLTableCellElement, event: KeyboardEvent, direction?: Direction): { nextCell: HTMLTableCellElement | null, isCheckbox: boolean, goToStart?: boolean } {
+        // const row = currentCell.parentElement as HTMLTableRowElement;
+        const cellIndex = currentCell.cellIndex;
+
+        let isAtStart = false, isAtEnd = false;
+        let bypass = event.altKey || event.key === "Tab" || cellIndex === checkboxIndex;
+
+        if (!bypass) {
+            ({ isAtStart, isAtEnd } = isAtStartEnd(currentCell));
         }
 
         if (!direction) {
@@ -275,7 +285,7 @@
         return { nextCell, isCheckbox, goToStart };
     }
 
-function focusCell(cell: HTMLTableCellElement) {
+    function focusCell(cell: HTMLTableCellElement) {
         const focusableChild = cell.querySelector('[tabindex="0"]') as HTMLElement | null;
         focusableChild?.focus();
 
@@ -339,11 +349,11 @@ function focusCell(cell: HTMLTableCellElement) {
             let navResult;
             switch (event.key) {
                 case "Delete":
-
-                    event.preventDefault();
-
                     // delete row
                     if (!isHeader) {
+                        let { isAtStart, isAtEnd } = isAtStartEnd(cell);
+                        if (!isAtEnd) break;
+                        event.preventDefault();
                         if (confirm(`Are you sure you want to delete row ${rowNum}?`)) {
                             direction = Direction.UpOrDown
 

@@ -15,6 +15,7 @@ notebook + spreadsheet + todo list
 
 ### cell
 - write in any cell
+- press delete in an ep
 - click the square to mark as in progress or done, done items will clear on refresh
 - write "m" in the last line of the cell to render markdown
 - navigate with arrow keys, tab and alt key
