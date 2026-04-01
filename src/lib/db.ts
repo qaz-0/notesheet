@@ -1,9 +1,9 @@
-import { get } from "svelte/store";
 import type { Field, Item, Table } from "./types";
 
 const DB_NAME = "notesheet-db";
 const METADATA_STORE_NAME = "tables-metadata";
 
+// ...existing code...
 export function resetDB(): Promise<void> {
     return new Promise((resolve, reject) => {
         const request = indexedDB.deleteDatabase(DB_NAME);
@@ -130,6 +130,15 @@ export async function getHistoryTableMetadata(): Promise<Table | null> {
     }
     return historyTable;
 }
+
+export async function insertItem(tableId: IDBValidKey, id: IDBValidKey, item: Item) {
+    await shiftItems(tableId, id, false);
+    item.id = id;
+    const newItem = await editItem(tableId, item);
+    return newItem;
+}
+
+
 
 export async function deleteItem(tableId: IDBValidKey, id: IDBValidKey) {
     const item = await getItemById(tableId, id);
@@ -299,6 +308,9 @@ export async function editItem(tableId: IDBValidKey, modifyItem: Item) {
                     }
                 }
             }
+            if (modifyItem['c'] == undefined) {
+                delete newItem['c'];
+            }
             // delete if only has c and id
             if (Object.keys(newItem).length === 1 || (Object.keys(newItem).length === 2 && newItem.hasOwnProperty('c'))) {
                 updateReq = store.delete(newItem.id);
@@ -315,7 +327,6 @@ export async function editItem(tableId: IDBValidKey, modifyItem: Item) {
         tx.onerror = () => reject(tx.error);
     });
 }
-
 
 export async function removeField(tableId: IDBValidKey, field: Field, fieldPosition?: number) {
     const db = await openDB();
@@ -361,7 +372,9 @@ export async function removeFieldMetadata(tableId: IDBValidKey, field: Field, fi
                     table.fields = table.fields.filter((f) => f.id !== field.id);
                 } else if (fieldPosition !== undefined) {
                     table.fields = table.fields.filter((f, index) => index !== fieldPosition);
-                    console.log(table);
+                } else {
+                    // remove the last column
+                    table.fields.pop();
                 }
                 const updateReq = store.put(table);
                 if (table.fields.length === 0) {
@@ -399,6 +412,7 @@ export async function addFieldMetadata(tableId: IDBValidKey, field: Field, field
                 } else {
                     // if field position or field id does not exist
                     table.fields.push(field);
+                    console.log("added field", field)
                 }
                 const updateReq = store.put(table);
                 updateReq.onsuccess = () => resolve(field);
@@ -484,7 +498,7 @@ export async function getAllTableMetadata(): Promise<Table[]> {
 export async function exportDataToJson() {
     try {
         const allMetadata = await getAllTableMetadata();
-        const exportData = [];
+        const exportData: object[] = [];
 
         for (const metadata of allMetadata) {
             if (metadata.id) {

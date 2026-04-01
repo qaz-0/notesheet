@@ -1,13 +1,15 @@
 <script lang="ts">
     import './Table.css';
     import plusIcon from '../assets/square-plus.svg';
-    import { getTable, editItem, getItemById, getAllTableMetadata, addFieldMetadata, removeFieldMetadata, deleteItem, deleteTable, getTableMetadata, setTableMetadata, shiftItems } from './db';
+    import { getTable, getItemById, getTableMetadata, setTableMetadata } from './db';
     import { Direction, type CheckboxState, type Field, type Item, type Table } from './types';
     import Checkbox from './Checkbox.svelte';
     import markdownit from 'markdown-it'
     import { getContext } from 'svelte';
+    import { actionManager } from "./actions";
+    import { AddFieldMetadataAction, DeleteItemAction, DeleteTableAction, EditItemAction, RemoveFieldMetadataAction, ShiftItemsAction } from './actionTypes';
 
-    let { table }: { table: Table } = $props();
+    let { table, reloadToken }: { table: Table, reloadToken: number } = $props();
     const tableId = table.id!;
     const md = markdownit();
     let tableData: (Item | null)[] = $state([]);
@@ -23,9 +25,10 @@
     const MIN_COLUMN_WIDTH = 20;
     const ADDITIONAL_ROWS = isHistory ? 0 : 10;
     let tableCount = getContext<() => any>('tableCount');
+    let counted = false;
 
     async function loadTableData() {
-        const newTableData = [];
+        const newTableData: (Item | null)[] = [];
         const data = await getTable(tableId);
         let maxIndex = data[data.length - 1]?.id as number ?? 0;
         // let maxIndex = data[data.length - 1].id as number;
@@ -37,7 +40,8 @@
             let item = data[dataIdx];
             if (item && item.id == i) {
                 if (item.c == 2) {
-                    await deleteItem(tableId, rowNum);
+                    const deleteAction = new DeleteItemAction(tableId, rowNum);
+                    actionManager.executeAction(deleteAction);
                 } else {
                     newTableData.push(item);
                     rowNum++
@@ -50,11 +54,25 @@
         }
 
         tableData = newTableData;
-
     }
 
+    if (table.name.toLowerCase() != "history" && !counted) {
+        tableCount().value++;
+        counted = true;
+        console.log(tableCount().value);
+    }
+
+    // $effect(() => {
+    //     reloadToken;
+    //     console.log("reloaddd")
+        // tableId = table.id!;
+        // isHistory = table.name.toLowerCase() == "history";
+        // additionalRows = isHistory ? 0 : 10;
+        // fields = table.fields;
+        // fieldsKey++;
+        // loadTableData();
+    // });/
     loadTableData();
-    if (table.name.toLowerCase() != "history") tableCount().value++;
 
     function startResize(event: PointerEvent, index: number) {
         if (!isEditing) return;
@@ -97,7 +115,8 @@
             if (fieldToUpdate && fieldToUpdate.size !== newWidth) {
                 const newFieldData = { ...fieldToUpdate, size: newWidth };
                 fields[resizingColumnIndex] = newFieldData;
-                await addFieldMetadata(tableId, newFieldData, resizingColumnIndex);
+                let addFieldAction = new AddFieldMetadataAction(tableId, newFieldData, resizingColumnIndex);
+                await actionManager.executeAction(addFieldAction);
             }
         }
 
@@ -358,7 +377,8 @@
                             direction = Direction.UpOrDown
 
                             await finishEdit(true);
-                            await shiftItems(tableId, rowNum, true)
+                            let shiftItemsAction = new ShiftItemsAction(tableId, rowNum, true);
+                            await actionManager.executeAction(shiftItemsAction);
                             await loadTableData();
                             navResult = navigate(cell, event, direction);
                             if (navResult?.nextCell)
@@ -372,7 +392,9 @@
                     console.log(cell.cellIndex)
                     const fieldToRemove = fields[cell.cellIndex];
                     if (fieldToRemove && confirm(`Are you sure you want to delete the column "${fieldToRemove.name}"?`)) {
-                        await removeFieldMetadata(tableId, fieldToRemove, cell.cellIndex);
+                        // await removeFieldMetadata(tableId, fieldToRemove, cell.cellIndex);
+                        let removeFieldAction = new RemoveFieldMetadataAction(tableId, fieldToRemove, cell.cellIndex);
+                        await actionManager.executeAction(removeFieldAction);
                         fields = fields.filter(field => field !== fieldToRemove);
 
                         checkboxIndex = fields.findIndex((f) => f.id == "c");
@@ -381,7 +403,8 @@
                         if (fields.length === 0) {
                             console.log("remove", tableContainer);
                             tableContainer.remove();
-                            await deleteTable(tableId);
+                            let deleteTableAction = new DeleteTableAction(tableId);
+                            await actionManager.executeAction(deleteTableAction);
                             console.log("remove", tableContainer);
                         } else {
                             fieldsKey++;
@@ -410,13 +433,6 @@
                     }
                     break;
             }
-
-            // } else if (event.key === "Escape") {
-
-            // } else if (event.key === "Delete") {
-
-            // } else if (isHeader && event.key === "Enter") {
-            // }
         };
 
         const blurHandler = () => {
@@ -450,7 +466,8 @@
                     if (oldField.name !== newField.name) {
                         if (confirm(`Are you sure you want to rename the column "${originalText}" to "${newText}"?`)) {
                             fields[cellIndex] = newField;
-                            await addFieldMetadata(tableId, newField, cellIndex);
+                            let addFieldAction = new AddFieldMetadataAction(tableId, newField, cellIndex);
+                            await actionManager.executeAction(addFieldAction);
                             // loadTableData();
                         } else {
                             cell.innerHTML = restoreText ?? originalText;
@@ -468,7 +485,8 @@
                             const disabled = checkbox.getAttribute("data-disabled");
                             const state = Number(row.getAttribute("data-state"));
                             if (state !== 2) {
-                                const resultItem = await editItem(tableId, newItem);
+                                const editAction = new EditItemAction(tableId, newItem);
+                                const resultItem = await actionManager.executeAction(editAction);
                                 if (!disabled && !resultItem) {
                                     checkbox.setAttribute("data-disabled", "true");
                                 }
@@ -479,8 +497,10 @@
                                 }
                             }
                         } else {
-                            await editItem(tableId, newItem);
+                            const editAction = new EditItemAction(tableId, newItem);
+                            await actionManager.executeAction(editAction);
                         }
+
                     } else {
                         console.error(`Invalid cell index ${cellIndex} for fieldsState with length ${fields.length}`);
                     }
@@ -496,7 +516,8 @@
         const newFieldName = prompt("Enter new column name:");
         if (newFieldName) {
             const newField: Field = { name: newFieldName, size: 100 };
-            await addFieldMetadata(tableId, newField);
+            let addFieldAction = new AddFieldMetadataAction(tableId, newField);
+            await actionManager.executeAction(addFieldAction);
             fields.push(newField);
             loadTableData();
         }
@@ -511,7 +532,8 @@
         const { row, rowNum } = checkboxGetRowData(checkbox);
         if (row) {
             const newItem: Item = { id: rowNum, 'c': 1 };
-            editItem(tableId, newItem);
+            const editAction = new EditItemAction(tableId, newItem);
+            actionManager.executeAction(editAction);
             row.setAttribute("data-state", "1");
         }
     };
@@ -520,7 +542,8 @@
         const { row, rowNum } = checkboxGetRowData(checkbox);
         if (row) {
             const newItem: Item = { id: rowNum, 'c': 2 };
-            editItem(tableId, newItem);
+            const editAction = new EditItemAction(tableId, newItem);
+            actionManager.executeAction(editAction);
             row.setAttribute("data-state", "2");
         }
     };
@@ -530,7 +553,9 @@
         if (row) {
             // restore item
             const newItem: Item = { id: rowNum, 'c': 1 };
-            editItem(tableId, newItem);
+            const editAction = new EditItemAction(tableId, newItem);
+            actionManager.executeAction(editAction);
+
             row.setAttribute("data-state", "1");
         }
     };
@@ -539,7 +564,8 @@
         const { row, rowNum } = checkboxGetRowData(checkbox);
         if (row) {
             const newItem: Item = { id: rowNum, 'c': 0 };
-            editItem(tableId, newItem);
+            const editAction = new EditItemAction(tableId, newItem);
+            actionManager.executeAction(editAction);
             row.setAttribute("data-state", "0");
         }
     };
@@ -555,7 +581,8 @@
             // });
             // editItem(tableId, newItem);
             const newItem: Item = { id: rowNum, 'c': 0 };
-            editItem(tableId, newItem);
+            const editAction = new EditItemAction(tableId, newItem);
+            actionManager.executeAction(editAction);
             row.setAttribute("data-state", "0");
         }
     };

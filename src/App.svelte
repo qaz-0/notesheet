@@ -3,16 +3,20 @@
     import Table from './lib/Table.svelte'
     import plusIcon from './assets/square-plus.svg'
     import type { Table as TableMeta } from './lib/types'
-    import { getAllTableMetadata, createTable, deleteTable, resetDB, exportDataToJson, importDataFromJson } from './lib/db';
+    import { getAllTableMetadata, exportDataToJson } from './lib/db';
     import TableCreationDialog from './lib/TableCreationDialog.svelte';
     import PwaReloadPrompt from './lib/PwaReloadPrompt.svelte';
     import { setContext } from 'svelte';
+    import { actionManager } from "./lib/actions";
+    import { CreateTableAction, ImportDataFromJsonAction } from './lib/actionTypes';
 
     let tables: TableMeta[] = $state([]);
     let historyTable: TableMeta | null = $state(null);
     let showCreateDialog = $state(false);
     let fileInput: HTMLInputElement;
     let tableCount = $state({ value: 0 });
+    let reloadToken = $state(0);
+
     setContext('tableCount', () => tableCount);
 
     function openAddTableDialog() {
@@ -31,7 +35,8 @@
             reader.onload = async (e) => {
                 const jsonString = e.target?.result as string;
                 try {
-                    await importDataFromJson(jsonString);
+                    const importAction = new ImportDataFromJsonAction(jsonString);
+                    actionManager.executeAction(importAction);
                     window.location.reload();
                 } catch (error) {
                     console.error("Import failed:", error);
@@ -81,7 +86,8 @@
 
         try {
             if (table !== null) {
-                const newTable = await createTable(table);
+                const createTableAction = new CreateTableAction(table);
+                let newTable = await actionManager.executeAction(createTableAction);
                 if (isHistoryTable) {
                     historyTable = newTable;
                 } else {
@@ -98,10 +104,14 @@
         showCreateDialog = false;
     }
 
-    getAllTableMetadata().then((tablesMeta) => {
-        console.log(tablesMeta)
-        // find and remove history table
-        tablesMeta = tablesMeta.filter(table => {
+    async function loadTables() {
+        const tablesMeta = await getAllTableMetadata();
+
+        // Reset table count
+        tableCount.value = 0;
+
+        // Find and separate history table
+        const filtered = tablesMeta.filter(table => {
             if (table.name.toLowerCase() === 'history') {
                 historyTable = table;
                 return false;
@@ -109,8 +119,32 @@
             return true;
         });
 
-        tables = tablesMeta
-    });
+        tables = filtered;
+        reloadToken++;
+    }
+
+    async function onKeydown(event: KeyboardEvent) {
+        if (event.key === 'Escape' && showCreateDialog) {
+            handleDialogClosed();
+        } else if (event.key === 'z' && (event.metaKey || event.ctrlKey)) {
+            event.preventDefault();
+            console.log("undo");
+            await actionManager.undo();
+            await loadTables();
+        } else if (event.key === 'y' && (event.metaKey || event.ctrlKey)) {
+            event.preventDefault();
+            console.log("redo");
+            await actionManager.redo();
+            await loadTables();
+        }
+    }
+
+    window.onkeydown = onKeydown;
+
+    actionManager.setUpdateCallback(loadTables);
+
+    loadTables();
+
 </script>
 
 <main>
@@ -121,11 +155,12 @@
         <input type="file" accept=".json" style="display: none;" bind:this={fileInput} onchange={handleFileSelected} />
     </div>
     <div class="tables">
-        {#each tables as table}
-            <Table {table}></Table>
+        {#each tables as table (Number(table.id))}
+        <!-- {#each tables as table (Number(table.id))} -->
+            <Table {table} {reloadToken}></Table>
         {/each}
         {#if historyTable && tableCount.value == tables.length}
-            <Table table={historyTable}></Table>
+            <Table table={historyTable} {reloadToken}></Table>
         {/if}
         <div class="add-table-container">
             <div class="add-table">
