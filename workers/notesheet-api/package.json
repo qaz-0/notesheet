@@ -1,0 +1,19 @@
+{
+  "name": "notesheet-api",
+  "version": "1.0.0",
+  "type": "module",
+  "scripts": {
+    "dev": "wrangler dev",
+    "deploy": "wrangler deploy",
+    "db:init:local": "wrangler d1 execute notesheet --local --file=schema.sql",
+    "db:init:remote": "wrangler d1 execute notesheet --remote --file=schema.sql"
+  },
+  "dependencies": {
+    "hono": "^4.4.0"
+  },
+  "devDependencies": {
+    "@cloudflare/workers-types": "^4.20240529.0",
+    "typescript": "^5.4.5",
+    "wrangler": "^4.79.0"
+  }
+}
