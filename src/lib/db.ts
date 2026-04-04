@@ -417,6 +417,9 @@ export async function removeFieldMetadata(tableId: IDBValidKey, field: Field, fi
 }
 
 export async function addFieldMetadata(tableId: IDBValidKey, field: Field, fieldPosition?: number, insert: boolean = false) {
+    if (insert && fieldPosition !== undefined) {
+        await shiftItemsSide(tableId, fieldPosition, true);
+    }
     const db = await openDB();
     return new Promise<Field>((resolve, reject) => {
         const tx = db.transaction(METADATA_STORE_NAME, "readwrite");
@@ -442,7 +445,6 @@ export async function addFieldMetadata(tableId: IDBValidKey, field: Field, field
                     } else {
                         table.fields.push(field);
                     }
-                    console.log("added field", field)
                 }
                 const updateReq = store.put(table);
                 updateReq.onsuccess = () => resolve(field);
@@ -514,7 +516,10 @@ export async function getAllTableMetadata(): Promise<Table[]> {
         const store = tx.objectStore(METADATA_STORE_NAME);
         const req = store.getAll();
 
-        req.onsuccess = () => resolve(req.result as Table[]);
+        req.onsuccess = () => {
+            const results = (req.result as Table[]).sort((a, b) => (a.order ?? Number(a.id)) - (b.order ?? Number(b.id)));
+            resolve(results);
+        };
         req.onerror = () => reject(req.error);
         tx.oncomplete = () => db.close();
         tx.onerror = () => reject(tx.error);
@@ -627,4 +632,50 @@ export async function importDataFromJson(jsonString: string): Promise<void> {
         alert("Failed to import data. Check file format and console for details.");
         throw error;
     }
+}
+export async function swapFieldsSide(tableId: IDBValidKey, pos1: number, pos2: number) {
+    let tableStoreName = tableId.toString();
+    const db = await openDB();
+    return new Promise((resolve, reject) => {
+        const tx = db.transaction(tableStoreName, "readwrite");
+        const store = tx.objectStore(tableStoreName);
+        const index = store.index("idIndex");
+        const req = index.openCursor();
+        req.onsuccess = () => {
+            const cur = req.result;
+            if (cur) {
+                const item = cur.value;
+                const val1 = item[pos1];
+                const val2 = item[pos2];
+                
+                if (val1 === undefined) delete item[pos2];
+                else item[pos2] = val1;
+                
+                if (val2 === undefined) delete item[pos1];
+                else item[pos1] = val2;
+                
+                store.put(item);
+                cur.continue();
+            }
+        };
+        tx.oncomplete = () => resolve(true);
+        tx.onerror = () => reject(tx.error);
+    });
+}
+
+export async function updateTableOrder(tableId: IDBValidKey, order: number) {
+    const table = await getTableMetadata(tableId);
+    table.order = order;
+    await setTableMetadata(table);
+}
+
+export async function swapTableOrder(tableId1: IDBValidKey, tableId2: IDBValidKey) {
+  const table1 = await getTableMetadata(tableId1);
+  const table2 = await getTableMetadata(tableId2);
+  const order1 = table1.order ?? Number(table1.id);
+  const order2 = table2.order ?? Number(table2.id);
+  table1.order = order2;
+  table2.order = order1;
+  await setTableMetadata(table1);
+  await setTableMetadata(table2);
 }

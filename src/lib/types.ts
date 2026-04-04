@@ -16,6 +16,7 @@ export interface Table {
     color: string;
     secondaryColor?: string;
     fields: Field[];
+    order?: number;
 }
 
 export enum Direction {
@@ -26,6 +27,13 @@ export enum Direction {
     UpOrDown,
     LeftOrRight,
     Closest
+}
+
+export interface BaseTableContext {
+    tableId: IDBValidKey;
+    getTableContainer: () => HTMLElement | undefined;
+    getFields: () => Field[];
+    setFields: (fields: Field[]) => void;
 }
 
 export type CheckboxState = undefined | 0 | 1 | 2;

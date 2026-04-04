@@ -10,21 +10,22 @@ import {
   EditItemAction,
 } from "./actionTypes";
 import { isAtStartEnd, navigate } from "./tableNavigation";
-import type { Direction, Field, Item } from "./types";
+import type { Direction, Field, Item, BaseTableContext } from "./types";
+import { parseDate, isValidDateString, getOriginalInput, formatDateDisplay } from "./dateParser";
 
-export interface TableEditorContext {
-  tableId: IDBValidKey;
-  getTableContainer: () => HTMLElement | undefined;
-  getFields: () => Field[];
-  setFields: (fields: Field[]) => void;
+export interface TableEditorContext extends BaseTableContext {
   getCheckboxIndex: () => number;
   setIsEditingCell: (isEditing: boolean) => void;
   incrementFieldsKey: () => void;
+  onSave?: (cell: HTMLTableCellElement, value: string) => Promise<boolean>;
+  getCellValue?: (cell: HTMLTableCellElement) => Promise<string | null>;
+  formatDate?: (stored: string) => string;
+  isCellEditable?: (cell: HTMLTableCellElement) => boolean;
 }
 
 export function createTableEditor(ctx: TableEditorContext) {
   function focusCell(cell: HTMLTableCellElement) {
-    const focusableChild = cell.querySelector('[tabindex="0"]') as HTMLElement | null;
+    const focusableChild = cell.querySelector('[tabindex="0"], button') as HTMLElement | null;
     focusableChild?.focus();
 
     const keydownHandler = (event: KeyboardEvent) => {
@@ -53,19 +54,38 @@ export function createTableEditor(ctx: TableEditorContext) {
   async function editCell(cell: HTMLTableCellElement, isHeader: boolean, atStart?: boolean) {
     if (cell.isContentEditable) return;
 
+    if (!isHeader && ctx.isCellEditable && !ctx.isCellEditable(cell)) {
+      focusCell(cell);
+      return;
+    }
+
     const row = cell.parentElement as HTMLTableRowElement;
     const rowNum = Number(row.getAttribute("data-row"));
     const originalText = cell.innerText.replace(/\u200B/g, "").trimEnd();
+    const fields = ctx.getFields();
+    const formatDate = ctx.formatDate ?? formatDateDisplay;
 
     if (!isHeader) {
-      const item = await getItemById(ctx.tableId, rowNum);
-      const plainText = item ? (item[cell.cellIndex] ?? "") : "";
+      let plainText: string | null = null;
+
+      if (ctx.getCellValue) {
+        plainText = await ctx.getCellValue(cell);
+      } else {
+        const item = await getItemById(ctx.tableId, rowNum);
+        plainText = item ? (item[cell.cellIndex] ?? "") : "";
+
+        // For date fields, show the original user input when editing
+        const fieldAtIndex = fields[cell.cellIndex];
+        if (fieldAtIndex && fieldAtIndex.name.toLowerCase() === 'date' && isValidDateString(plainText)) {
+          plainText = getOriginalInput(plainText as string);
+        }
+      }
+
       const currentContent = cell.innerText.replace(/\u200B/g, "");
 
-      // Only forcibly manipulate the DOM if it's genuinely out of sync.
-      // Svelte tracks this DOM node actively, so destroying it with textContent 
-      // loses the reactivity anchor, preventing Undo from clearing the cell.
-      if (currentContent !== plainText) cell.textContent = plainText;
+      if (plainText !== null && currentContent !== plainText) {
+        cell.textContent = plainText;
+      }
     }
 
     ctx.setIsEditingCell(true);
@@ -95,48 +115,46 @@ export function createTableEditor(ctx: TableEditorContext) {
             let { isAtEnd } = isAtStartEnd(cell);
             if (!isAtEnd) break;
             event.preventDefault();
-            if (confirm(`Are you sure you want to delete row ${rowNum}?`)) {
-              const cellIndex = cell.cellIndex;
-              const targetRowId = rowNum;
 
-              await finishEdit(true);
-              let shiftItemsAction = new ShiftItemsAction(ctx.tableId, rowNum, true);
-              await actionManager.executeAction(shiftItemsAction);
-              await actionManager.flushUpdates();
+            const cellIndex = cell.cellIndex;
+            const targetRowId = rowNum;
 
-              // Prevent focus-fighting by awaiting Svelte's asynchronous structural updates
-              await new Promise<void>((resolve) => {
-                const handler = (e: Event) => {
-                  const customEv = e as CustomEvent;
-                  if (customEv.detail === ctx.tableId) {
-                    document.removeEventListener('tableDataLoaded', handler);
-                    resolve();
-                  }
-                };
-                document.addEventListener('tableDataLoaded', handler);
-                setTimeout(() => {
+            await finishEdit(true);
+            let shiftItemsAction = new ShiftItemsAction(ctx.tableId, rowNum, true);
+            await actionManager.executeAction(shiftItemsAction);
+            await actionManager.flushUpdates();
+
+            // Prevent focus-fighting by awaiting Svelte's asynchronous structural updates
+            await new Promise<void>((resolve) => {
+              const handler = (e: Event) => {
+                const customEv = e as CustomEvent;
+                if (customEv.detail === ctx.tableId) {
                   document.removeEventListener('tableDataLoaded', handler);
                   resolve();
-                }, 300); // safety fallback
-              });
+                }
+              };
+              document.addEventListener('tableDataLoaded', handler);
+              setTimeout(() => {
+                document.removeEventListener('tableDataLoaded', handler);
+                resolve();
+              }, 300); // safety fallback
+            });
 
-              // Svelte has now cleanly flushed the DOM with the shifted cells. Focus can be restored safely.
-              const container = ctx.getTableContainer();
-              if (container) {
-                const newTbody = container.querySelector("tbody");
-                if (newTbody) {
-                  const newRow = newTbody.querySelector(`tr[data-row="${targetRowId}"]`) as HTMLTableRowElement;
-                  const fallbackRow = newTbody.querySelector(`tr[data-row="${targetRowId - 1}"]`) as HTMLTableRowElement;
-                  const targetRow = newRow || fallbackRow;
+            const container = ctx.getTableContainer();
+            if (container) {
+              const newTbody = container.querySelector("tbody");
+              if (newTbody) {
+                const newRow = newTbody.querySelector(`tr[data-row="${targetRowId}"]`) as HTMLTableRowElement;
+                const fallbackRow = newTbody.querySelector(`tr[data-row="${targetRowId - 1}"]`) as HTMLTableRowElement;
+                const targetRow = newRow || fallbackRow;
 
-                  if (targetRow) {
-                    const newCell = targetRow.children[cellIndex] as HTMLTableCellElement;
-                    if (newCell) {
-                      if (cellIndex === ctx.getCheckboxIndex()) {
-                        focusCell(newCell);
-                      } else {
-                        editCell(newCell, false, true);
-                      }
+                if (targetRow) {
+                  const newCell = targetRow.children[cellIndex] as HTMLTableCellElement;
+                  if (newCell) {
+                    if (cellIndex === ctx.getCheckboxIndex()) {
+                      focusCell(newCell);
+                    } else {
+                      editCell(newCell, false, true);
                     }
                   }
                 }
@@ -147,9 +165,10 @@ export function createTableEditor(ctx: TableEditorContext) {
 
           // Header column deletion
           await finishEdit(true, originalText);
-          const fields = ctx.getFields();
           const fieldToRemove = fields[cell.cellIndex];
-          if (fieldToRemove && confirm(`Are you sure you want to delete the column "${fieldToRemove.name}"?`)) {
+          if (fieldToRemove
+            // && confirm(`Are you sure you want to delete the column "${fieldToRemove.name}"?`)
+          ) {
             let removeFieldAction = new RemoveFieldMetadataAction(ctx.tableId, fieldToRemove, cell.cellIndex);
             await actionManager.executeAction(removeFieldAction);
             await actionManager.flushUpdates();
@@ -158,7 +177,6 @@ export function createTableEditor(ctx: TableEditorContext) {
             ctx.setFields(newFields);
 
             if (newFields.length === 0) {
-              console.log("delete table", newFields.length)
               const container = ctx.getTableContainer();
               if (container) container.remove();
               let deleteTableAction = new DeleteTableAction(ctx.tableId);
@@ -221,8 +239,10 @@ export function createTableEditor(ctx: TableEditorContext) {
           cell.innerText = restoreText ?? originalText;
           return;
         }
+
         const cellIndex = cell.cellIndex;
-        const fields = ctx.getFields();
+        const fieldAtIndex = fields[cellIndex];
+        let storedValue = newText;
 
         if (isHeader) {
           const oldField = fields[cellIndex];
@@ -239,33 +259,49 @@ export function createTableEditor(ctx: TableEditorContext) {
             }
           }
         } else {
-          const newItem: Item = { id: rowNum };
-          if (cellIndex < fields.length) {
-            newItem[cellIndex] = newText;
-            const checkboxIndex = ctx.getCheckboxIndex();
+          if (fieldAtIndex && fieldAtIndex.name.toLowerCase() === 'date' && newText.trim() !== '') {
+            storedValue = parseDate(newText) ?? newText;
+          }
 
-            if (checkboxIndex !== -1) {
-              const checkbox = row.children[checkboxIndex].firstChild as HTMLDivElement;
-              const disabled = checkbox.getAttribute("data-disabled");
-              const state = Number(row.getAttribute("data-state"));
-
-              if (state !== 2) {
-                const editAction = new EditItemAction(ctx.tableId, newItem);
-                const resultItem = await actionManager.executeAction(editAction);
-
-                if (!disabled && !resultItem) {
-                  checkbox.setAttribute("data-disabled", "true");
-                }
-                if (disabled === "true" && resultItem) {
-                  checkbox.removeAttribute("data-disabled");
-                }
-              }
-            } else {
-              const editAction = new EditItemAction(ctx.tableId, newItem);
-              await actionManager.executeAction(editAction);
+          if (ctx.onSave) {
+            const handled = await ctx.onSave(cell, newText);
+            if (!handled) {
+              // Optional: rollback UI if save failed?
             }
           } else {
-            console.error(`Invalid cell index ${cellIndex} for fields with length ${fields.length}`);
+            const newItem: Item = { id: rowNum };
+            if (cellIndex < fields.length) {
+              newItem[cellIndex] = storedValue;
+
+              const checkboxIndex = ctx.getCheckboxIndex();
+
+              if (checkboxIndex !== -1) {
+                const td = row.children[checkboxIndex];
+                const checkbox = td.querySelector('.checkbox') as HTMLDivElement;
+                const disabled = checkbox?.getAttribute("data-disabled");
+                const state = Number(row.getAttribute("data-state"));
+
+                if (state !== 2) {
+                  const editAction = new EditItemAction(ctx.tableId, newItem);
+                  const resultItem = await actionManager.executeAction(editAction);
+
+                  if (checkbox && !disabled && !resultItem) {
+                    checkbox.setAttribute("data-disabled", "true");
+                  }
+                  if (checkbox && disabled === "true" && resultItem) {
+                    checkbox.removeAttribute("data-disabled");
+                  }
+                }
+              } else {
+                const editAction = new EditItemAction(ctx.tableId, newItem);
+                await actionManager.executeAction(editAction);
+              }
+            }
+          }
+
+          // Immediately update cell display for date fields
+          if (fieldAtIndex && fieldAtIndex.name.toLowerCase() === 'date' && isValidDateString(storedValue)) {
+            cell.textContent = formatDate(storedValue);
           }
         }
       }

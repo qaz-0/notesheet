@@ -389,11 +389,11 @@ export class RemoveFieldMetadataAction extends Action {
 
         // Before adding the restored field back, shift current fields right to carve space in IDB Items
         if (this.fieldPosition !== undefined) {
-             await db.shiftItemsSide(this.tableId, this.fieldPosition, true);
+            await db.shiftItemsSide(this.tableId, this.fieldPosition, true);
         }
 
         await db.addFieldMetadata(this.tableId, undoData.field, this.fieldPosition, true);
-        
+
         if (undoData.columnData) {
             for (const data of undoData.columnData) {
                 const item = await db.getItemById(this.tableId, data.id);
@@ -483,5 +483,105 @@ export class RenameTableAction extends Action {
 
     protected generateUndoArgs(oldName: string): any[] {
         return [oldName];
+    }
+}
+
+export class MoveTableAction extends Action {
+    static readonly actionName = "MoveTable"
+    private tableId1: IDBValidKey;
+    private tableId2: IDBValidKey;
+
+    constructor(tableId1: IDBValidKey, tableId2: IDBValidKey) {
+        super(tableId1, tableId2);
+        this.tableId1 = tableId1;
+        this.tableId2 = tableId2;
+    }
+
+    async execute(): Promise<void> {
+        await db.swapTableOrder(this.tableId1, this.tableId2);
+        this.setUndoArgs(this.generateUndoArgs(null));
+    }
+
+    async undo(): Promise<void> {
+        await db.swapTableOrder(this.tableId1, this.tableId2);
+    }
+
+    protected generateUndoArgs(result: any): any[] {
+        return [this.tableId1, this.tableId2];
+    }
+}
+
+export class MoveFieldAction extends Action {
+    static readonly actionName = "MoveField"
+    private tableId: IDBValidKey;
+    private fromIndex: number;
+    private toIndex: number;
+
+    constructor(tableId: IDBValidKey, fromIndex: number, toIndex: number) {
+        super(tableId, fromIndex, toIndex);
+        this.tableId = tableId;
+        this.fromIndex = fromIndex;
+        this.toIndex = toIndex;
+    }
+
+    async execute(): Promise<void> {
+        const table = await db.getTableMetadata(this.tableId);
+        const fields = [...table.fields];
+        const [moved] = fields.splice(this.fromIndex, 1);
+        fields.splice(this.toIndex, 0, moved);
+        table.fields = fields;
+        await db.setTableMetadata(table);
+        await db.swapFieldsSide(this.tableId, this.fromIndex, this.toIndex);
+        this.setUndoArgs(this.generateUndoArgs(null));
+    }
+
+    async undo(): Promise<void> {
+        const table = await db.getTableMetadata(this.tableId);
+        const fields = [...table.fields];
+        const [moved] = fields.splice(this.toIndex, 1);
+        fields.splice(this.fromIndex, 0, moved);
+        table.fields = fields;
+        await db.setTableMetadata(table);
+        await db.swapFieldsSide(this.tableId, this.toIndex, this.fromIndex);
+    }
+
+    protected generateUndoArgs(result: any): any[] {
+        return [];
+    }
+}
+
+export class UpdateTableColorAction extends Action {
+    static readonly actionName = "UpdateTableColor"
+    private tableId: IDBValidKey;
+    private color: string;
+    private secondaryColor: string;
+
+    constructor(tableId: IDBValidKey, color: string, secondaryColor: string) {
+        super(tableId, color, secondaryColor);
+        this.tableId = tableId;
+        this.color = color;
+        this.secondaryColor = secondaryColor;
+    }
+
+    async execute(): Promise<void> {
+        const table = await db.getTableMetadata(this.tableId);
+        const oldColor = table.color;
+        const oldSecondaryColor = table.secondaryColor;
+        table.color = this.color;
+        table.secondaryColor = this.secondaryColor;
+        await db.setTableMetadata(table);
+        this.setUndoArgs(this.generateUndoArgs({ oldColor, oldSecondaryColor }));
+    }
+
+    async undo(): Promise<void> {
+        const [oldData] = this.undoArgs!;
+        const table = await db.getTableMetadata(this.tableId);
+        table.color = oldData.oldColor;
+        table.secondaryColor = oldData.oldSecondaryColor;
+        await db.setTableMetadata(table);
+    }
+
+    protected generateUndoArgs(result: any): any[] {
+        return [result];
     }
 }

@@ -2,8 +2,13 @@
     border-collapse: collapse;
     table-layout: fixed;
     width: 50px;
-    font-size: 18px;
+    font-size: 24px;
     border: 2px solid black;
+    backdrop-filter: blur(20px);
+    background-color: color-mix(in srgb,
+            var(--table-background-color),
+            rgba(100, 100, 100, 0.1) 15%);
+    /* background-color: var(--table-background-color); */
 }
 
 .table caption {
@@ -12,10 +17,11 @@
     border-right: 2px solid black;
     border-left: 2px solid black;
     font-size: 1.5em;
+    font-weight: 800;
     cursor: pointer;
 }
 
-.table caption > span {
+.table caption>span {
     padding: 0 20px;
     margin: 0 5px;
     overflow: hidden;
@@ -32,6 +38,7 @@
     overflow: hidden;
     vertical-align: top;
     padding: 0px;
+    font-weight: 800;
     width: attr(data-size type(<length>));
 }
 
@@ -53,9 +60,38 @@
     height: 1lh;
     box-sizing: content-box;
     border: 2px dashed black;
-    padding: 0 5px;
+    padding: 5px 10px;
     word-break: break-word;
     vertical-align: top;
+}
+
+.table tbody td[data-tooltip] {
+    position: relative;
+    cursor: default;
+}
+
+.table tbody td[data-tooltip]:hover::after {
+    content: attr(data-tooltip);
+    position: absolute;
+    bottom: 100%;
+    left: 50%;
+    transform: translateX(-50%);
+    background: #222;
+    color: #fff;
+    padding: 3px 8px;
+    border-radius: 4px;
+    font-size: 0.75em;
+    white-space: nowrap;
+    z-index: 100;
+    pointer-events: none;
+    opacity: 0;
+    animation: tooltip-fade-in 0.15s ease-out forwards;
+}
+
+@keyframes tooltip-fade-in {
+    to {
+        opacity: 1;
+    }
 }
 
 .table .edit {
@@ -65,7 +101,7 @@
 }
 
 .table td:has(> .tri-state-checkbox) {
-    width: 1lh !important;
+    width: calc(1lh + 10px) !important;
     padding: 0;
     border: 2px solid black;
 }
@@ -74,6 +110,7 @@
     background-color: var(--secondary-color);
     color: var(--color-state-1);
 }
+
 .table tr:has(> td > .tri-state-checkbox[data-state="2"]) {
     color: var(--color-state-2);
     background-color: color-mix(in srgb, var(--background-color) 80%, black)
@@ -113,7 +150,7 @@
     opacity: 1;
 }
 
-.add-column > img {
+.add-column>img {
     position: absolute;
     top: 50%;
     left: 50%;

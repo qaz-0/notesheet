@@ -1,6 +1,7 @@
 <script lang="ts">
   import svelteLogo from "./assets/svelte.svg";
   import Table from "./lib/Table.svelte";
+  import TimeSensitiveTable from "./lib/TimeSensitiveTable.svelte";
   import plusIcon from "./assets/square-plus.svg";
   import type { Table as TableMeta } from "./lib/types";
   import { getAllTableMetadata, exportDataToJson } from "./lib/db";
@@ -8,16 +9,20 @@
   import PwaReloadPrompt from "./lib/PwaReloadPrompt.svelte";
   import SyncStatus from "./lib/SyncStatus.svelte";
   import DevicePairing from "./lib/DevicePairing.svelte";
+  import MainMenu from "./lib/MainMenu.svelte";
+  import Icon from "./lib/Icon.svelte";
   import { setContext, onMount, onDestroy, tick } from "svelte";
   import { actionManager } from "./lib/actions";
   import {
     CreateTableAction,
     ImportDataFromJsonAction,
   } from "./lib/actionTypes";
+  import ShapeGrid from "./lib/ShapeGrid.svelte";
   import { initializeSyncManager, type SyncManager } from "./lib/sync";
 
   let tables: TableMeta[] = $state([]);
   let historyTable: TableMeta | null = $state(null);
+  let timeSensitiveTable: TableMeta | null = $state(null);
   let showCreateDialog = $state(false);
   let showPairingDialog = $state(false);
   let fileInput: HTMLInputElement;
@@ -72,11 +77,7 @@
     showCreateDialog = true;
   }
 
-  async function handleImportClick() {
-    fileInput.click();
-  }
-
-  async function handleFileSelected(event: Event) {
+  function handleFileSelected(event: Event) {
     const input = event.target as HTMLInputElement;
     if (input.files && input.files[0]) {
       const file = input.files[0];
@@ -94,6 +95,10 @@
       };
       reader.readAsText(file);
     }
+  }
+
+  function handleImportClick() {
+    fileInput.click();
   }
 
   async function handleCreateRequested(details: Omit<TableMeta, "fields">) {
@@ -128,19 +133,46 @@
         secondaryColor,
         fields: [
           { id: "c", name: "c", size: 100 },
-          { name: "date", size: 100 },
-          { name: "item", size: 100 },
-          { name: "note", size: 100 },
+          { name: "date", size: 160 },
+          { name: "item", size: 300 },
+          { name: "note", size: 300 },
         ],
       };
     }
 
+    const isTimeSensitiveTable = name.toLowerCase() === "time sensitive";
+
     try {
       if (table !== null) {
+        if (isTimeSensitiveTable) {
+          // Time sensitive tables have a location field and user-added fields
+          let tablesMeta = await getAllTableMetadata();
+          if (
+            tablesMeta.find((t) => t.name.toLowerCase() === "time sensitive")
+          ) {
+            alert("Time Sensitive table already exists");
+            return;
+          }
+          table = {
+            name,
+            color,
+            secondaryColor,
+            fields: [
+              { id: "c", name: "c", size: 100 },
+              { name: "date", size: 330 },
+              { name: "item", size: 300 },
+              { name: "note", size: 300 },
+              { id: "l", name: "l", size: 150 },
+            ],
+          };
+        }
+
         const createTableAction = new CreateTableAction(table);
         let newTable = await actionManager.executeAction(createTableAction);
         if (isHistoryTable) {
           historyTable = newTable;
+        } else if (isTimeSensitiveTable) {
+          timeSensitiveTable = newTable;
         } else {
           tables.push(newTable);
         }
@@ -159,10 +191,14 @@
     console.log("load tables");
     const tablesMeta = await getAllTableMetadata();
 
-    // Find and separate history table
+    // Find and separate special tables
     const filtered = tablesMeta.filter((table) => {
       if (table.name.toLowerCase() === "history") {
         historyTable = table;
+        return false;
+      }
+      if (table.name.toLowerCase() === "time sensitive") {
+        timeSensitiveTable = table;
         return false;
       }
       return true;
@@ -233,19 +269,71 @@
 
   window.onkeydown = onKeydown;
 
+  function handleNavigateToItem(tableId: IDBValidKey, rowId: number) {
+    // Find the table container for the source table and scroll the row into view
+    const allContainers = Array.from(
+      document.querySelectorAll(".table-container"),
+    );
+    for (const container of allContainers) {
+      const tableEl = container.querySelector("table.table");
+      if (!tableEl) continue;
+      const row = tableEl.querySelector(
+        `tbody tr[data-row="${rowId}"]`,
+      ) as HTMLTableRowElement;
+      if (!row) continue;
+      // Verify this is the right table by checking if any row exists
+      // We check the caption to match by table id
+      const caption = tableEl.querySelector("caption span");
+      if (!caption) continue;
+
+      // Scroll into view
+      row.scrollIntoView({ behavior: "smooth", block: "center" });
+
+      // Flash highlight
+      row.style.transition = "outline 0.15s ease";
+      row.style.outline = "3px solid #f59e0b";
+      setTimeout(() => {
+        row.style.outline = "";
+        setTimeout(() => (row.style.transition = ""), 300);
+      }, 1500);
+
+      // Try to focus the first editable cell
+      const firstTd = row.querySelector("td") as HTMLTableCellElement;
+      if (firstTd) firstTd.click();
+      return;
+    }
+  }
+
   actionManager.setUpdateCallback(loadTables);
 
   loadTables();
 </script>
 
 <main>
+  <div style="width: 100%; height: 100%; position: fixed">
+    <ShapeGrid
+      speed={0.1}
+      squareSize={55}
+      direction="diagonal"
+      borderColor="#101620"
+      hoverFillColor="#101620"
+      shape="hexagon"
+      hoverTrailAmount={0}
+    />
+  </div>
   <PwaReloadPrompt />
   <div class="app-controls">
-    <button class="menu" onclick={handleUndo} disabled={!canUndo}>Undo</button>
-    <button class="menu" onclick={handleRedo} disabled={!canRedo}>Redo</button>
-    <button class="menu" onclick={exportDataToJson}>Export</button>
-    <button class="menu" onclick={handleImportClick}>Import</button>
-    <!-- <button class="menu" onclick={loadTables}>Reload</button> -->
+    <MainMenu
+      {syncEnabled}
+      {toggleSync}
+      {syncManager}
+      onImport={handleImportClick}
+      onPairing={() => (showPairingDialog = true)}
+      {canUndo}
+      {canRedo}
+      {handleUndo}
+      {handleRedo}
+    />
     <input
       type="file"
       accept=".json"
@@ -253,17 +341,6 @@
       bind:this={fileInput}
       onchange={handleFileSelected}
     />
-    <div class="sync-controls">
-      <button class="menu" onclick={toggleSync}>
-        {syncEnabled ? "Disable Sync" : "Enable Sync"}
-      </button>
-      {#if syncManager && syncEnabled}
-        <SyncStatus {syncManager} />
-        <button class="menu" onclick={() => (showPairingDialog = true)}
-          >Pair Device</button
-        >
-      {/if}
-    </div>
   </div>
   {#if showPairingDialog && syncManager}
     <DevicePairing {syncManager} onClose={() => (showPairingDialog = false)} />
@@ -276,11 +353,18 @@
     {#if historyTable}
       <Table table={historyTable} {reloadToken}></Table>
     {/if}
+    {#if timeSensitiveTable}
+      <TimeSensitiveTable
+        table={timeSensitiveTable}
+        {reloadToken}
+        onNavigate={handleNavigateToItem}
+      ></TimeSensitiveTable>
+    {/if}
     <div class="add-table-container">
       <div class="add-table">
-        <button onclick={openAddTableDialog}
-          ><img src={plusIcon} alt="add table" /></button
-        >
+        <button class="add-table-btn" onclick={openAddTableDialog} title="Add Table">
+          <Icon name="plus" size={32} strokeWidth={3} />
+        </button>
         {#if showCreateDialog}
           <TableCreationDialog
             onCreateRequested={handleCreateRequested}

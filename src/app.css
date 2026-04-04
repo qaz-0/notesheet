@@ -3,9 +3,10 @@
 @import "tailwindcss/theme.css" layer(theme);
 /* @import "tailwindcss/preflight.css" layer(base); */
 @import "tailwindcss/utilities.css" layer(utilities);
+@import url('https://fonts.googleapis.com/css2?family=Outfit:wght@100..900&display=swap');
 
 :root {
-  font-family: system-ui, Avenir, Helvetica, Arial, sans-serif;
+  font-family: 'Outfit', sans-serif;
   /* line-height: 1.5; */
   font-weight: 400;
 
@@ -16,7 +17,8 @@
   --color-state-1: #a9a9a9;
   --color-state-2: #a9a9a930;
   color: var(--color);
-  --background-color: #202022;
+  --background-color: #1f1d1a;
+  --table-background-color: #0c0e16;
   background-color: var(--background-color);
 
   font-synthesis: none;
@@ -25,11 +27,9 @@
   -moz-osx-font-smoothing: grayscale;
 }
 
-@media (prefers-color-scheme: light) {
-}
+@media (prefers-color-scheme: light) {}
 
-@media (prefers-color-scheme: dark) {
-}
+@media (prefers-color-scheme: dark) {}
 
 *,
 ::after,
@@ -38,6 +38,7 @@
 ::file-selector-button {
   margin: 0;
 }
+
 *,
 ::after,
 ::before,
@@ -86,14 +87,35 @@ button {
   top: 50%;
 }
 
-.add-table > button {
-  display: block;
-  width: 2em;
-  height: 2em;
-  background-color: var(--background-color);
-  transition: opacity 0.2s ease-out;
+.add-table-btn {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 54px;
+  height: 54px;
+  background-color: color-mix(
+    in srgb,
+    var(--background-color),
+    rgba(10, 10, 10, 0.9) 90%
+  );
+  backdrop-filter: blur(8px);
+  border: 2px solid black;
+  border-radius: 10px;
+  color: var(--color);
   cursor: pointer;
+  transition: all 0.1s ease;
 }
+
+
+.add-table-btn:hover {
+  transform: translate(-1px, -1px);
+  background-color: rgba(255, 255, 255, 0.1);
+}
+
+.add-table-btn:active {
+  transform: translate(0px, 0px);
+}
+
 
 .app-controls {
   display: flex;
@@ -110,7 +132,7 @@ button.menu {
   color: var(--color-2);
   border: 1px solid #808080;
   padding: 3px 7px;
-  border-radius: 2px;
+  border-radius: 0px;
   cursor: pointer;
   transform: translateY(0px);
   transition: transform 200ms ease-in-out;
@@ -142,13 +164,13 @@ button.menu:disabled:hover {
 
 /* scrollbar */
 ::-webkit-scrollbar {
-  width: 8px;
-  height: 8px;
+  width: 10px;
+  height: 10px;
 }
 
 ::-webkit-scrollbar-thumb {
-  background-color: var(--color-1);
-  border-radius: 5px;
+  background-color: #101620;
+  border-radius: 0px;
 }
 
 ::-webkit-scrollbar-thumb:hover {
