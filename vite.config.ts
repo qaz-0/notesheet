@@ -5,6 +5,15 @@ import tailwindcss from '@tailwindcss/vite';
 
 export default defineConfig({
   // base: '/notesheet/',
+  server: {
+    host: '0.0.0.0', // or '0.0.0.0' to expose on all interfaces
+    port: 5173, // optional: specify a custom port
+    allowedHosts: [
+      "localhost",
+      "dev.nitbit.dev",
+      "notesheet-api.nitbit.workers.dev"
+    ]
+  },
   base: '/',
   plugins: [
     tailwindcss(),

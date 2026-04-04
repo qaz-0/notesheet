@@ -8,13 +8,7 @@
     setTableMetadata,
     deleteItem,
   } from "./db";
-  import {
-    Direction,
-    type CheckboxState,
-    type Field,
-    type Item,
-    type Table,
-  } from "./types";
+  import type { Direction, CheckboxState, Field, Item, Table } from "./types";
   import Checkbox from "./Checkbox.svelte";
   import markdownit from "markdown-it";
   import { getContext, tick } from "svelte";
@@ -22,11 +16,12 @@
   import {
     AddFieldMetadataAction,
     DeleteItemAction,
-    DeleteTableAction,
     EditItemAction,
-    RemoveFieldMetadataAction,
-    ShiftItemsAction,
+    MarkAsDoneAction,
+    UpdateFieldMetadataAction,
+    RenameTableAction,
   } from "./actionTypes";
+  import { createTableEditor } from "./tableEditing";
 
   let { table, reloadToken }: { table: Table; reloadToken: number } = $props();
   const tableId = table.id!;
@@ -43,13 +38,14 @@
   let isHistory = table.name.toLowerCase() == "history";
   const MIN_COLUMN_WIDTH = 20;
   const ADDITIONAL_ROWS = isHistory ? 0 : 10;
-  let tableCount = getContext<() => any>("tableCount");
-  let counted = false;
   let isEditingCell = $state(false);
 
-  async function loadTableData() {
-    // Skip reload if user is actively editing a cell to prevent interference
-    if (isEditingCell) return;
+  async function loadTableData(token: number) {
+    const tableMeta = await getTableMetadata(tableId);
+    if (JSON.stringify(fields) !== JSON.stringify(tableMeta.fields)) {
+      fields = tableMeta.fields;
+      fieldsKey++;
+    }
     const data = await getTable(tableId);
     checkboxIndex = fields.findIndex((f) => f.id == "c");
 
@@ -57,40 +53,64 @@
     // Using direct DB call to avoid triggering updateCallback cascade
     const itemsToDelete = data.filter((item) => item.c === 2);
     for (const item of itemsToDelete) {
-      await deleteItem(tableId, item.id);
+      console.log("deleting item", item);
+      const doneAction = new MarkAsDoneAction(tableId, item.id);
+      await actionManager.executeAction(doneAction);
     }
 
     // Phase 2: Reload fresh data if any deletions occurred
     const freshData = itemsToDelete.length > 0 ? await getTable(tableId) : data;
 
     // Phase 3: Build display data
-    const newTableData: (Item | null)[] = [];
-    let maxIndex = (freshData[freshData.length - 1]?.id as number) ?? 0;
+    let maxIndex = 0;
+    if (freshData.length > 0) {
+      maxIndex = (freshData[freshData.length - 1]?.id as number) ?? 0;
+    }
+    const newLength = maxIndex + ADDITIONAL_ROWS;
 
-    let dataIdx = 0;
-    for (let i = 0; i < maxIndex + ADDITIONAL_ROWS; i++) {
-      let item = freshData[dataIdx];
-      if (item && item.id == i) {
-        newTableData.push(item);
-        dataIdx++;
-      } else {
-        newTableData.push(null);
+    const freshDataMap = new Map();
+    for (const item of freshData) {
+      if (item) freshDataMap.set(item.id, item);
+    }
+
+    if (tableData.length !== newLength) {
+      tableData.length = newLength;
+    }
+
+    for (let i = 0; i < newLength; i++) {
+      const freshItem = freshDataMap.get(i);
+      const currentItem = tableData[i];
+
+      if (!freshItem && !currentItem) {
+        continue;
+      } else if (freshItem && !currentItem) {
+        tableData[i] = { ...freshItem };
+      } else if (!freshItem && currentItem) {
+        tableData[i] = null;
+      } else if (freshItem && currentItem) {
+        for (const key in currentItem) {
+          if (!(key in freshItem)) delete currentItem[key];
+        }
+        for (const key in freshItem) {
+          if (currentItem[key] !== freshItem[key]) {
+            currentItem[key] = freshItem[key];
+          }
+        }
       }
     }
 
-    tableData = newTableData;
-  }
+    // Unconditionally recreate the array proxy to force full reconciliation
+    tableData = [...tableData];
 
-  if (table.name.toLowerCase() != "history" && !counted) {
-    tableCount().value++;
-    counted = true;
-    console.log(tableCount().value);
+    // Dispatch event to unblock macroscopic UI operations waiting for DOM accuracy
+    document.dispatchEvent(
+      new CustomEvent("tableDataLoaded", { detail: tableId }),
+    );
   }
 
   // Reload table data when reloadToken changes (triggered by undo/redo)
   $effect(() => {
-    reloadToken; // Track as dependency
-    loadTableData();
+    loadTableData(reloadToken);
   });
 
   function startResize(event: PointerEvent, index: number) {
@@ -136,12 +156,12 @@
       if (fieldToUpdate && fieldToUpdate.size !== newWidth) {
         const newFieldData = { ...fieldToUpdate, size: newWidth };
         fields[resizingColumnIndex] = newFieldData;
-        let addFieldAction = new AddFieldMetadataAction(
+        let updateFieldAction = new UpdateFieldMetadataAction(
           tableId,
           newFieldData,
           resizingColumnIndex,
         );
-        await actionManager.executeAction(addFieldAction);
+        await actionManager.executeAction(updateFieldAction);
         // Don't flush updates here - let debounce handle it to avoid interfering with resize
       }
     }
@@ -161,7 +181,7 @@
     const bodyCell = target.closest("tbody td") as HTMLTableCellElement | null;
     const bodyCellParent = bodyCell?.parentElement;
 
-    if (caption) {
+    if (caption && !caption.firstElementChild?.classList.contains("edit")) {
       const tableNameElement = caption.firstElementChild as HTMLElement;
       if (target == tableNameElement) {
         tableNameElement.classList.add("edit");
@@ -173,10 +193,10 @@
           tableNameElement.removeAttribute("contenteditable");
 
           const newName = tableNameElement.innerText.trim();
-          if (newName) {
-            const table = await getTableMetadata(tableId);
-            table.name = newName;
-            await setTableMetadata(table);
+          if (newName !== table.name) {
+            const renameAction = new RenameTableAction(tableId, newName);
+            await actionManager.executeAction(renameAction);
+            await actionManager.flushUpdates();
           }
         };
 
@@ -205,441 +225,21 @@
     }
   }
 
-  function getCell(
-    currentCell: HTMLTableCellElement,
-    direction: Direction,
-  ): HTMLTableCellElement | null {
-    let nextCell: HTMLTableCellElement | null = null;
-    switch (direction) {
-      case Direction.Up:
-        const prevRow = currentCell.parentElement
-          ?.previousElementSibling as HTMLTableRowElement;
-        if (prevRow?.hasAttribute("data-row")) {
-          nextCell = prevRow.children[
-            currentCell.cellIndex
-          ] as HTMLTableCellElement;
-        }
-        break;
-      case Direction.Down:
-        const nextRow = currentCell.parentElement
-          ?.nextElementSibling as HTMLTableRowElement;
-        if (nextRow?.hasAttribute("data-row")) {
-          nextCell = nextRow.children[
-            currentCell.cellIndex
-          ] as HTMLTableCellElement;
-        }
-        break;
-      case Direction.Left:
-        const prevSibling = currentCell.previousElementSibling;
-        if (
-          prevSibling &&
-          (prevSibling.tagName === "TD" || prevSibling.tagName === "TH")
-        ) {
-          nextCell = prevSibling as HTMLTableCellElement;
-        }
-        break;
-      case Direction.Right:
-        const nextSibling = currentCell.nextElementSibling;
-        if (
-          nextSibling &&
-          (nextSibling.tagName === "TD" || nextSibling.tagName === "TH")
-        ) {
-          nextCell = nextSibling as HTMLTableCellElement;
-        }
-        break;
-    }
-    return nextCell;
-  }
-
-  function isAtStartEnd(currentCell: HTMLTableCellElement): {
-    isAtStart: boolean;
-    isAtEnd: boolean;
-  } {
-    const selection = window.getSelection();
-    let isAtStart = false,
-      isAtEnd = false;
-
-    if (selection && selection.rangeCount && selection.isCollapsed) {
-      const selRange = selection.getRangeAt(0);
-      const testRange = selRange.cloneRange();
-
-      testRange.selectNodeContents(currentCell);
-      testRange.setEnd(selRange.startContainer, selRange.startOffset);
-      isAtStart = testRange.toString() === "";
-
-      testRange.selectNodeContents(currentCell);
-      testRange.setStart(selRange.endContainer, selRange.endOffset);
-      const endStr = testRange.toString();
-      isAtEnd = endStr === "" || endStr === "\n";
-    }
-
-    return { isAtStart, isAtEnd };
-  }
-
-  function navigate(
-    currentCell: HTMLTableCellElement,
-    event: KeyboardEvent,
-    direction?: Direction,
-  ): {
-    nextCell: HTMLTableCellElement | null;
-    isCheckbox: boolean;
-    goToStart?: boolean;
-  } {
-    // const row = currentCell.parentElement as HTMLTableRowElement;
-    const cellIndex = currentCell.cellIndex;
-
-    let isAtStart = false,
-      isAtEnd = false;
-    let bypass =
-      event.altKey || event.key === "Tab" || cellIndex === checkboxIndex;
-
-    if (!bypass) {
-      ({ isAtStart, isAtEnd } = isAtStartEnd(currentCell));
-    }
-
-    if (!direction) {
-      switch (event.key) {
-        case "ArrowUp":
-          direction = Direction.Up;
-          break;
-        case "ArrowDown":
-          direction = Direction.Down;
-          break;
-        case "ArrowLeft":
-          direction = Direction.Left;
-          break;
-        case "ArrowRight":
-          direction = Direction.Right;
-          break;
-        case "Tab":
-          direction = event.shiftKey ? Direction.Left : Direction.Right;
-          break;
-        default:
-          return { nextCell: null, isCheckbox: false };
-      }
-    }
-
-    let nextCell: HTMLTableCellElement | null = null;
-    let goToStart: boolean | undefined = undefined;
-    let isCheckbox = false;
-
-    if (direction == Direction.UpOrDown) {
-      let tempNextCell = getCell(currentCell, Direction.Down);
-      if (tempNextCell == null)
-        tempNextCell = getCell(currentCell, Direction.Up);
-      goToStart = isAtStart || !isAtEnd;
-      nextCell = tempNextCell;
-    }
-
-    if (isAtEnd || bypass) {
-      if (direction == Direction.Down) {
-        nextCell = getCell(currentCell, Direction.Down);
-        goToStart = false;
-      } else if (direction == Direction.Right) {
-        nextCell = getCell(currentCell, Direction.Right);
-        goToStart = false;
-      }
-    }
-
-    if (isAtStart || bypass) {
-      if (direction == Direction.Up) {
-        nextCell = getCell(currentCell, Direction.Up);
-        goToStart = true;
-      } else if (direction == Direction.Left) {
-        nextCell = getCell(currentCell, Direction.Left);
-        goToStart = true;
-      }
-    }
-
-    if (
-      nextCell &&
-      nextCell.cellIndex === checkboxIndex &&
-      nextCell.tagName === "TD"
-    ) {
-      isCheckbox = true;
-    }
-
-    if (event.key === "Tab" || nextCell) {
-      event.preventDefault();
-    }
-
-    return { nextCell, isCheckbox, goToStart };
-  }
-
-  function focusCell(cell: HTMLTableCellElement) {
-    const focusableChild = cell.querySelector(
-      '[tabindex="0"]',
-    ) as HTMLElement | null;
-    focusableChild?.focus();
-
-    const keydownHandler = (event: KeyboardEvent) => {
-      const navResult = navigate(cell, event);
-
-      if (navResult.nextCell) {
-        finish();
-        if (navResult.isCheckbox) {
-          focusCell(navResult.nextCell);
-        } else {
-          editCell(navResult.nextCell, false, navResult.goToStart);
-        }
-      } else if (event.key === "Escape") {
-        event.preventDefault();
-        finish();
-      }
-
-      function finish() {
-        focusableChild?.blur();
-        cell.removeEventListener("keydown", keydownHandler);
-      }
-    };
-    cell.addEventListener("keydown", keydownHandler);
-  }
-
-  async function editCell(
-    cell: HTMLTableCellElement,
-    isHeader: boolean,
-    atStart?: boolean,
-  ) {
-    if (cell.isContentEditable) return;
-
-    const row = cell.parentElement as HTMLTableRowElement;
-    const rowNum = Number(row.getAttribute("data-row"));
-    const originalText = cell.innerText.trimEnd();
-    if (!isHeader) {
-      const item = await getItemById(tableId, rowNum);
-      const plainText = item ? (item[cell.cellIndex] ?? "") : "";
-      if (cell.innerText !== plainText) cell.textContent = plainText;
-    }
-
-    isEditingCell = true;
-    cell.classList.add("edit");
-    cell.contentEditable = "true";
-
-    setTimeout(() => {
-      cell.focus();
-
-      if (atStart !== undefined) {
-        // move cursor to start or end
-        const selection = window.getSelection();
-        if (!selection) return;
-
-        const range = document.createRange();
-        range.selectNodeContents(cell);
-
-        range.collapse(atStart);
-        selection.removeAllRanges();
-        selection.addRange(range);
-      }
-    }, 0);
-
-    const keydownHandler = async (event: KeyboardEvent) => {
-      let direction: Direction | undefined;
-      let navResult;
-      switch (event.key) {
-        case "Delete":
-          // delete row
-          if (!isHeader) {
-            let { isAtStart, isAtEnd } = isAtStartEnd(cell);
-            if (!isAtEnd) break;
-            event.preventDefault();
-            if (confirm(`Are you sure you want to delete row ${rowNum}?`)) {
-              // Capture cell index and row ID before DOM changes
-              const cellIndex = cell.cellIndex;
-              const targetRowId = rowNum; // Use ID, not DOM index
-
-              await finishEdit(true);
-              let shiftItemsAction = new ShiftItemsAction(
-                tableId,
-                rowNum,
-                true,
-              );
-              await actionManager.executeAction(shiftItemsAction);
-              // Flush updates immediately to sync UI with database
-              await actionManager.flushUpdates();
-              await tick(); // Wait for DOM to update
-
-              // Re-acquire cell using ID-based query (more reliable than index)
-              const newTbody = tableContainer.querySelector("tbody");
-              if (newTbody) {
-                // After shift, the row at position targetRowId has a different item
-                // Try to focus the row now at that position, or fall back to previous row
-                const newRow = newTbody.querySelector(
-                  `tr[data-row="${targetRowId}"]`,
-                ) as HTMLTableRowElement;
-                const fallbackRow = newTbody.querySelector(
-                  `tr[data-row="${targetRowId - 1}"]`,
-                ) as HTMLTableRowElement;
-                const targetRow = newRow || fallbackRow;
-
-                if (targetRow) {
-                  const newCell = targetRow.children[
-                    cellIndex
-                  ] as HTMLTableCellElement;
-                  if (newCell) {
-                    const isCheckboxCell = cellIndex === checkboxIndex;
-                    if (isCheckboxCell) {
-                      focusCell(newCell);
-                    } else {
-                      editCell(newCell, false, true); // Start at beginning
-                    }
-                  }
-                }
-              }
-            }
-            break;
-          }
-
-          await finishEdit(true, originalText);
-          console.log(cell.cellIndex);
-          const fieldToRemove = fields[cell.cellIndex];
-          if (
-            fieldToRemove &&
-            confirm(
-              `Are you sure you want to delete the column "${fieldToRemove.name}"?`,
-            )
-          ) {
-            // await removeFieldMetadata(tableId, fieldToRemove, cell.cellIndex);
-            let removeFieldAction = new RemoveFieldMetadataAction(
-              tableId,
-              fieldToRemove,
-              cell.cellIndex,
-            );
-            await actionManager.executeAction(removeFieldAction);
-            await actionManager.flushUpdates();
-            fields = fields.filter((field) => field !== fieldToRemove);
-
-            checkboxIndex = fields.findIndex((f) => f.id == "c");
-
-            console.log(fields.length);
-            if (fields.length === 0) {
-              console.log("remove", tableContainer);
-              tableContainer.remove();
-              let deleteTableAction = new DeleteTableAction(tableId);
-              await actionManager.executeAction(deleteTableAction);
-              await actionManager.flushUpdates();
-              console.log("remove", tableContainer);
-            } else {
-              fieldsKey++;
-            }
-          }
-          break;
-        case "Escape":
-          event.preventDefault();
-          await finishEdit(true, originalText);
-          break;
-        case "Enter":
-          if (isHeader) {
-            event.preventDefault();
-            await finishEdit();
-          }
-        default:
-          navResult = navigate(cell, event, direction);
-          if (navResult?.nextCell) {
-            await finishEdit(false);
-            if (navResult.isCheckbox) {
-              focusCell(navResult.nextCell);
-            } else {
-              editCell(navResult.nextCell, isHeader, navResult.goToStart);
-            }
-          }
-          break;
-      }
-    };
-
-    const blurHandler = () => {
-      setTimeout(() => {
-        if (
-          !cell.contains(document.activeElement) &&
-          document.activeElement !== cell
-        ) {
-          finishEdit();
-        }
-      }, 0);
-    };
-
-    async function finishEdit(
-      cancel = false,
-      restoreText: string | null = null,
-    ) {
-      cell.removeEventListener("keydown", keydownHandler);
-      cell.removeEventListener("blur", blurHandler);
-
-      if (!cell.isContentEditable) return;
-
-      isEditingCell = false;
-      const newText = isHeader ? cell.innerText.trim() : cell.innerText;
-      cell.classList.remove("edit");
-      cell.removeAttribute("contenteditable");
-
-      if (newText !== originalText) {
-        if (cancel) {
-          cell.innerText = restoreText ?? originalText;
-          return;
-        }
-        const cellIndex = cell.cellIndex;
-        if (isHeader) {
-          const oldField = fields[cellIndex];
-          const newField = { name: newText, size: oldField.size };
-
-          if (oldField.name !== newField.name) {
-            if (
-              confirm(
-                `Are you sure you want to rename the column "${originalText}" to "${newText}"?`,
-              )
-            ) {
-              fields[cellIndex] = newField;
-              let addFieldAction = new AddFieldMetadataAction(
-                tableId,
-                newField,
-                cellIndex,
-              );
-              await actionManager.executeAction(addFieldAction);
-              // Don't flush updates here - let debounce handle it to avoid interfering with editing
-            } else {
-              cell.innerHTML = restoreText ?? originalText;
-            }
-          }
-        } else {
-          const newItem: Item = { id: rowNum };
-          if (cellIndex < fields.length) {
-            newItem[cellIndex] = newText;
-            // if done, dont edit
-            // if not done and empty disable
-            // if not done and become not empty, enable
-            if (checkboxIndex !== -1) {
-              const checkbox = row.children[checkboxIndex]
-                .firstChild as HTMLDivElement;
-              const disabled = checkbox.getAttribute("data-disabled");
-              const state = Number(row.getAttribute("data-state"));
-              if (state !== 2) {
-                const editAction = new EditItemAction(tableId, newItem);
-                const resultItem =
-                  await actionManager.executeAction(editAction);
-                // Don't flush updates here - let debounce handle it to avoid interfering with editing
-                if (!disabled && !resultItem) {
-                  checkbox.setAttribute("data-disabled", "true");
-                }
-
-                if (disabled === "true" && resultItem)
-                  checkbox.removeAttribute("data-disabled");
-              }
-            } else {
-              const editAction = new EditItemAction(tableId, newItem);
-              await actionManager.executeAction(editAction);
-              // Don't flush updates here - let debounce handle it to avoid interfering with editing
-            }
-          } else {
-            console.error(
-              `Invalid cell index ${cellIndex} for fieldsState with length ${fields.length}`,
-            );
-          }
-        }
-      }
-    }
-
-    cell.addEventListener("keydown", keydownHandler);
-    cell.addEventListener("blur", blurHandler);
-  }
+  const { focusCell, editCell } = createTableEditor({
+    tableId: tableId,
+    getTableContainer: () => tableContainer,
+    getFields: () => fields,
+    setFields: (f: Field[]) => {
+      fields = f;
+    },
+    getCheckboxIndex: () => checkboxIndex,
+    setIsEditingCell: (val: boolean) => {
+      isEditingCell = val;
+    },
+    incrementFieldsKey: () => {
+      fieldsKey++;
+    },
+  });
 
   async function addColumn() {
     const newFieldName = prompt("Enter new column name:");
@@ -652,61 +252,22 @@
     }
   }
 
-  function checkboxGetRowData(checkbox: HTMLDivElement) {
+  async function updateCheckboxState(checkbox: HTMLDivElement, state: number) {
     const row = checkbox.closest("tr");
-    return { row, rowNum: Number(row?.getAttribute("data-row")) };
-  }
-
-  async function zeroToOne(checkbox: HTMLDivElement) {
-    const { row, rowNum } = checkboxGetRowData(checkbox);
-    if (row) {
-      const newItem: Item = { id: rowNum, c: 1 };
+    const rowNum = Number(row?.getAttribute("data-row"));
+    if (row && !isNaN(rowNum)) {
+      const newItem: Item = { id: rowNum, c: state };
       const editAction = new EditItemAction(tableId, newItem);
       await actionManager.executeAction(editAction);
       await actionManager.flushUpdates();
     }
   }
 
-  async function oneToTwo(checkbox: HTMLDivElement) {
-    const { row, rowNum } = checkboxGetRowData(checkbox);
-    if (row) {
-      const newItem: Item = { id: rowNum, c: 2 };
-      const editAction = new EditItemAction(tableId, newItem);
-      await actionManager.executeAction(editAction);
-      await actionManager.flushUpdates();
-    }
-  }
-
-  async function twoToOne(checkbox: HTMLDivElement) {
-    const { row, rowNum } = checkboxGetRowData(checkbox);
-    if (row) {
-      // restore item
-      const newItem: Item = { id: rowNum, c: 1 };
-      const editAction = new EditItemAction(tableId, newItem);
-      await actionManager.executeAction(editAction);
-      await actionManager.flushUpdates();
-    }
-  }
-
-  async function oneToZero(checkbox: HTMLDivElement) {
-    const { row, rowNum } = checkboxGetRowData(checkbox);
-    if (row) {
-      const newItem: Item = { id: rowNum, c: 0 };
-      const editAction = new EditItemAction(tableId, newItem);
-      await actionManager.executeAction(editAction);
-      await actionManager.flushUpdates();
-    }
-  }
-
-  async function twoToZero(checkbox: HTMLDivElement) {
-    const { row, rowNum } = checkboxGetRowData(checkbox);
-    if (row) {
-      const newItem: Item = { id: rowNum, c: 0 };
-      const editAction = new EditItemAction(tableId, newItem);
-      await actionManager.executeAction(editAction);
-      await actionManager.flushUpdates();
-    }
-  }
+  const zeroToOne = (el: HTMLDivElement) => updateCheckboxState(el, 1);
+  const oneToTwo = (el: HTMLDivElement) => updateCheckboxState(el, 2);
+  const twoToOne = (el: HTMLDivElement) => updateCheckboxState(el, 1);
+  const oneToZero = (el: HTMLDivElement) => updateCheckboxState(el, 0);
+  const twoToZero = (el: HTMLDivElement) => updateCheckboxState(el, 0);
 </script>
 
 <div
@@ -760,17 +321,13 @@
                 />
               </td>
             {:else if !field.id}
-              {#if row}
-                <td>
-                  {#if row[i]?.endsWith("\nm")}
-                    {@html md.render(row[i]?.slice(0, -2) ?? "")}
-                  {:else}
-                    {@html row[i] ?? ""}
-                  {/if}
-                </td>
-              {:else}
-                <td></td>
-              {/if}
+              <td>
+                {#if row?.[i]?.endsWith("\nm")}
+                  {@html md.render(row[i]?.slice(0, -2) ?? "")}
+                {:else}
+                  {@html row?.[i] ?? "\u200B"}
+                {/if}
+              </td>
             {/if}
           {/each}
         </tr>

@@ -8,7 +8,7 @@
   import PwaReloadPrompt from "./lib/PwaReloadPrompt.svelte";
   import SyncStatus from "./lib/SyncStatus.svelte";
   import DevicePairing from "./lib/DevicePairing.svelte";
-  import { setContext, onMount, onDestroy } from "svelte";
+  import { setContext, onMount, onDestroy, tick } from "svelte";
   import { actionManager } from "./lib/actions";
   import {
     CreateTableAction,
@@ -21,7 +21,6 @@
   let showCreateDialog = $state(false);
   let showPairingDialog = $state(false);
   let fileInput: HTMLInputElement;
-  let tableCount = $state({ value: 0 });
   let reloadToken = $state(0);
 
   // Undo/Redo state
@@ -38,12 +37,29 @@
   // For production: 'https://notesheet-api.nitbit.workers.dev'
   const SYNC_API_URL = "https://notesheet-api.nitbit.workers.dev";
   let syncManager: SyncManager | null = $state(null);
+  let syncEnabled = $state(true);
+
+  function toggleSync() {
+    syncEnabled = !syncEnabled;
+    localStorage.setItem("syncEnabled", String(syncEnabled));
+    if (syncManager) {
+      if (syncEnabled) {
+        syncManager.start(30000);
+      } else {
+        syncManager.stop();
+      }
+    }
+  }
 
   // Initialize sync on mount
   onMount(() => {
+    syncEnabled = localStorage.getItem("syncEnabled") !== "false";
     syncManager = initializeSyncManager(SYNC_API_URL);
     actionManager.setSyncManager(syncManager);
-    syncManager.start(30000); // Sync every 30 seconds
+
+    if (syncEnabled) {
+      syncManager.start(30000); // Sync every 30 seconds
+    }
   });
 
   onDestroy(() => {
@@ -51,8 +67,6 @@
       syncManager.stop();
     }
   });
-
-  setContext("tableCount", () => tableCount);
 
   function openAddTableDialog() {
     showCreateDialog = true;
@@ -142,10 +156,8 @@
   }
 
   async function loadTables() {
+    console.log("load tables");
     const tablesMeta = await getAllTableMetadata();
-
-    // Reset table count
-    tableCount.value = 0;
 
     // Find and separate history table
     const filtered = tablesMeta.filter((table) => {
@@ -177,17 +189,44 @@
     if (event.key === "Escape") {
       if (showCreateDialog) handleDialogClosed();
       if (showPairingDialog) showPairingDialog = false;
-    } else if (event.key === "z" && (event.metaKey || event.ctrlKey) && event.shiftKey) {
+    } else if (
+      event.key === "z" &&
+      (event.metaKey || event.ctrlKey) &&
+      event.shiftKey
+    ) {
+      if (
+        !(document.activeElement instanceof HTMLElement) ||
+        document.activeElement.hasAttribute("contenteditable")
+      )
+        return;
       // Ctrl+Shift+Z = Redo (check before Ctrl+Z)
       event.preventDefault();
+      document.activeElement.blur();
+      // Allow the setTimeout blur handler to flush any actively edited cell
+      await new Promise((r) => setTimeout(r, 10));
       await handleRedo();
     } else if (event.key === "z" && (event.metaKey || event.ctrlKey)) {
       // Ctrl+Z = Undo
+      if (
+        !(document.activeElement instanceof HTMLElement) ||
+        document.activeElement.hasAttribute("contenteditable")
+      )
+        return;
+
       event.preventDefault();
+      document.activeElement.blur();
+      await new Promise((r) => setTimeout(r, 10));
       await handleUndo();
     } else if (event.key === "y" && (event.metaKey || event.ctrlKey)) {
+      if (
+        !(document.activeElement instanceof HTMLElement) ||
+        document.activeElement.hasAttribute("contenteditable")
+      )
+        return;
       // Ctrl+Y = Redo (Windows convention)
       event.preventDefault();
+      document.activeElement.blur();
+      await new Promise((r) => setTimeout(r, 10));
       await handleRedo();
     }
   }
@@ -206,6 +245,7 @@
     <button class="menu" onclick={handleRedo} disabled={!canRedo}>Redo</button>
     <button class="menu" onclick={exportDataToJson}>Export</button>
     <button class="menu" onclick={handleImportClick}>Import</button>
+    <!-- <button class="menu" onclick={loadTables}>Reload</button> -->
     <input
       type="file"
       accept=".json"
@@ -214,7 +254,10 @@
       onchange={handleFileSelected}
     />
     <div class="sync-controls">
-      {#if syncManager}
+      <button class="menu" onclick={toggleSync}>
+        {syncEnabled ? "Disable Sync" : "Enable Sync"}
+      </button>
+      {#if syncManager && syncEnabled}
         <SyncStatus {syncManager} />
         <button class="menu" onclick={() => (showPairingDialog = true)}
           >Pair Device</button
@@ -230,7 +273,7 @@
       <!-- {#each tables as table (Number(table.id))} -->
       <Table {table} {reloadToken}></Table>
     {/each}
-    {#if historyTable && tableCount.value == tables.length}
+    {#if historyTable}
       <Table table={historyTable} {reloadToken}></Table>
     {/if}
     <div class="add-table-container">

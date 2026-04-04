@@ -33,6 +33,7 @@ export class SyncManager {
   private syncInterval: ReturnType<typeof setInterval> | null = null;
   private statusListeners: Set<(status: SyncStatus) => void> = new Set();
   private actionApplier: ((action: SyncAction) => Promise<void>) | null = null;
+  private isEnabled: boolean = false;
 
   constructor(apiUrl: string = DEFAULT_API_URL) {
     this.apiUrl = apiUrl;
@@ -78,7 +79,7 @@ export class SyncManager {
   private getStatus(): SyncStatus {
     const queue = getSyncQueue();
     return {
-      state: this.isOnline ? "idle" : "offline",
+      state: (!this.isEnabled || !this.isOnline) ? "offline" : "idle",
       pendingCount: queue.pending.length,
       lastSync: queue.lastAttempt || null,
       error: null,
@@ -90,7 +91,7 @@ export class SyncManager {
     window.addEventListener("online", () => this.onOnline());
     window.addEventListener("offline", () => this.onOffline());
     document.addEventListener("visibilitychange", () => {
-      if (document.visibilityState === "visible" && this.isOnline) {
+      if (this.isEnabled && document.visibilityState === "visible" && this.isOnline) {
         this.sync();
       }
     });
@@ -99,7 +100,9 @@ export class SyncManager {
   private onOnline(): void {
     this.isOnline = true;
     this.notifyStatusChange(this.getStatus());
-    this.sync();
+    if (this.isEnabled) {
+      this.sync();
+    }
   }
 
   private onOffline(): void {
@@ -112,6 +115,9 @@ export class SyncManager {
 
   // Start periodic sync
   start(intervalMs: number = 30000): void {
+    this.isEnabled = true;
+    this.notifyStatusChange(this.getStatus());
+
     if (this.syncInterval) {
       clearInterval(this.syncInterval);
     }
@@ -130,6 +136,9 @@ export class SyncManager {
 
   // Stop periodic sync
   stop(): void {
+    this.isEnabled = false;
+    this.notifyStatusChange(this.getStatus());
+    
     if (this.syncInterval) {
       clearInterval(this.syncInterval);
       this.syncInterval = null;
@@ -252,14 +261,14 @@ export class SyncManager {
     this.notifyStatusChange(this.getStatus());
 
     // Try to sync immediately if online
-    if (this.isOnline && this.isAuthenticated) {
+    if (this.isEnabled && this.isOnline && this.isAuthenticated) {
       this.sync();
     }
   }
 
   // Main sync method - push local actions, receive remote actions
   async sync(): Promise<boolean> {
-    if (!this.isOnline) {
+    if (!this.isEnabled || !this.isOnline) {
       return false;
     }
 
@@ -335,6 +344,8 @@ export class SyncManager {
 
   // Full sync - for new devices or recovery
   async fullSync(): Promise<boolean> {
+    if (!this.isEnabled || !this.isOnline) return false;
+
     if (!this.isAuthenticated) {
       const registered = await this.registerDevice();
       if (!registered) return false;

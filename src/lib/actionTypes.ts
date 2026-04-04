@@ -11,7 +11,7 @@ export class ResetDBAction extends Action {
 
     async execute(): Promise<void> {
         const allData = await db.getAllTableMetadata();
-        const exportData = [];
+        const exportData: { metadata: Table, items: Item[] }[] = [];
 
         for (const metadata of allData) {
             if (metadata.id) {
@@ -46,7 +46,7 @@ export class ImportDataFromJsonAction extends Action {
 
     async execute(): Promise<void> {
         const allData = await db.getAllTableMetadata();
-        const exportData = [];
+        const exportData: { metadata: Table, items: Item[] }[] = [];
 
         for (const metadata of allData) {
             if (metadata.id) {
@@ -118,7 +118,7 @@ export class DeleteTableAction extends Action {
 
         // Restore items
         for (const item of tableData.items) {
-            await db.editItem(createdTable.id!, item);
+            await db.putItem(createdTable.id!, item);
         }
     }
 
@@ -204,6 +204,41 @@ export class DeleteItemAction extends Action {
     }
 }
 
+export class MarkAsDoneAction extends Action {
+    static readonly actionName = "MarkAsDoneAction"
+    private tableId: IDBValidKey;
+    private id: IDBValidKey;
+
+    constructor(tableId: IDBValidKey, id: IDBValidKey) {
+        super(tableId, id);
+        this.tableId = tableId;
+        this.id = id;
+    }
+
+    async execute(): Promise<void> {
+        const item = await db.getItemById(this.tableId, this.id);
+        if (item) item.c = 1;
+        await db.markAsDone(this.tableId, this.id);
+        this.setUndoArgs(this.generateUndoArgs(item));
+    }
+
+    async undo(): Promise<void> {
+        const [item] = this.undoArgs!;
+        if (item) {
+            await db.editItem(this.tableId, item);
+
+            const historyTable = await db.getHistoryTableMetadata();
+            if (historyTable && historyTable.id) {
+                await db.shiftItems(historyTable.id, 0, true);
+            }
+        }
+    }
+
+    protected generateUndoArgs(item: Item | null): any[] {
+        return [item];
+    }
+}
+
 export class InsertItemAction extends Action {
     static readonly actionName = "InsertItem"
     private tableId: IDBValidKey;
@@ -236,6 +271,7 @@ export class ShiftItemsAction extends Action {
     private tableId: IDBValidKey;
     private id: IDBValidKey;
     private up: boolean;
+    private itemData: Item | null = null;
 
     constructor(tableId: IDBValidKey, id: IDBValidKey, up: boolean = true) {
         super(tableId, id, up);
@@ -245,17 +281,21 @@ export class ShiftItemsAction extends Action {
     }
 
     async execute(): Promise<void> {
+        const item = await db.getItemById(this.tableId, this.id);
         await db.shiftItems(this.tableId, this.id, this.up);
-        this.setUndoArgs(this.generateUndoArgs(null));
+        this.setUndoArgs(this.generateUndoArgs(item));
     }
 
     async undo(): Promise<void> {
-        const [tableId, id, up] = this.undoArgs!;
+        const [tableId, id, up, itemData] = this.undoArgs!;
         await db.shiftItems(tableId, id, !up);
+        if (itemData) {
+            await db.putItem(tableId, itemData);
+        }
     }
 
-    protected generateUndoArgs(result: any): any[] {
-        return [this.tableId, this.id, this.up];
+    protected generateUndoArgs(item: Item | null): any[] {
+        return [this.tableId, this.id, this.up, item];
     }
 }
 
@@ -332,18 +372,116 @@ export class RemoveFieldMetadataAction extends Action {
     }
 
     async execute(): Promise<Field[]> {
+        const items = await db.getTable(this.tableId);
+        const columnData = items.map(item => {
+            const val = this.field.id ? item[this.field.id] : (this.fieldPosition !== undefined ? item[this.fieldPosition] : undefined);
+            return { id: item.id, val };
+        }).filter(d => d.val !== undefined);
+
         const result = await db.removeFieldMetadata(this.tableId, this.field, this.fieldPosition);
         const plainField = JSON.parse(JSON.stringify(this.field));
-        this.setUndoArgs(this.generateUndoArgs(plainField));
+        this.setUndoArgs(this.generateUndoArgs({ field: plainField, columnData }));
         return result;
     }
 
     async undo(): Promise<void> {
-        const [removedField] = this.undoArgs!;
-        await db.addFieldMetadata(this.tableId, removedField, this.fieldPosition);
+        const [undoData] = this.undoArgs!;
+
+        // Before adding the restored field back, shift current fields right to carve space in IDB Items
+        if (this.fieldPosition !== undefined) {
+             await db.shiftItemsSide(this.tableId, this.fieldPosition, true);
+        }
+
+        await db.addFieldMetadata(this.tableId, undoData.field, this.fieldPosition, true);
+        
+        if (undoData.columnData) {
+            for (const data of undoData.columnData) {
+                const item = await db.getItemById(this.tableId, data.id);
+                if (item) {
+                    if (undoData.field.id) {
+                        item[undoData.field.id] = data.val;
+                    } else if (this.fieldPosition !== undefined) {
+                        item[this.fieldPosition] = data.val;
+                    }
+                    await db.putItem(this.tableId, item);
+                } else {
+                    const newItem: Item = { id: data.id };
+                    if (undoData.field.id) {
+                        newItem[undoData.field.id] = data.val;
+                    } else if (this.fieldPosition !== undefined) {
+                        newItem[this.fieldPosition] = data.val;
+                    }
+                    await db.putItem(this.tableId, newItem);
+                }
+            }
+        }
     }
 
-    protected generateUndoArgs(field: Field): any[] {
-        return [field];
+    protected generateUndoArgs(undoData: any): any[] {
+        return [undoData];
+    }
+}
+
+export class UpdateFieldMetadataAction extends Action {
+    static readonly actionName = "UpdateFieldMetadata"
+    private tableId: IDBValidKey;
+    private field: Field;
+    private fieldPosition: number;
+
+    constructor(tableId: IDBValidKey, field: Field, fieldPosition: number) {
+        super(tableId, field, fieldPosition);
+        this.tableId = tableId;
+        this.field = field;
+        this.fieldPosition = fieldPosition;
+    }
+
+    async execute(): Promise<Field> {
+        const oldTableMetadata = await db.getTableMetadata(this.tableId);
+        const oldField = JSON.parse(JSON.stringify(oldTableMetadata.fields[this.fieldPosition]));
+        const result = await db.addFieldMetadata(this.tableId, this.field, this.fieldPosition);
+        this.setUndoArgs(this.generateUndoArgs(oldField));
+        return result;
+    }
+
+    async undo(): Promise<void> {
+        const [oldField] = this.undoArgs!;
+        await db.addFieldMetadata(this.tableId, oldField, this.fieldPosition);
+    }
+
+    protected generateUndoArgs(result: any): any[] {
+        return [result];
+    }
+}
+
+export class RenameTableAction extends Action {
+    static readonly actionName = "RenameTable"
+    private tableId: IDBValidKey;
+    private newName: string;
+
+    constructor(tableId: IDBValidKey, newName: string) {
+        super(tableId, newName);
+        this.tableId = tableId;
+        this.newName = newName;
+    }
+
+    async execute(): Promise<void> {
+        const table = await db.getTableMetadata(this.tableId);
+        const oldName = table.name;
+        table.name = this.newName;
+        await db.setTableMetadata(table);
+        this.setUndoArgs(this.generateUndoArgs(oldName));
+    }
+
+    async undo(): Promise<void> {
+        const [oldName] = this.undoArgs!;
+        if (oldName !== undefined) {
+            const table = await db.getTableMetadata(this.tableId);
+            table.name = oldName;
+            await db.setTableMetadata(table);
+        }
+    }
+
+    protected generateUndoArgs(oldName: string): any[] {
+        return [oldName];
     }
 }

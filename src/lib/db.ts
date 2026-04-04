@@ -24,7 +24,11 @@ export function openDB(): Promise<IDBDatabase> {
             }
         };
 
-        request.onsuccess = () => resolve(request.result);
+        request.onsuccess = () => {
+            const db = request.result;
+            db.onversionchange = () => db.close();
+            resolve(db);
+        };
         request.onerror = () => reject(request.error);
     });
 }
@@ -72,23 +76,32 @@ export async function deleteTable(tableId: IDBValidKey) {
         }
 
         db.close();
-        const version = db.version + 1;
-        const upgradeReq = indexedDB.open(DB_NAME, version);
+        
+        // Give the stack a micro-cycle to let asynchronous db.close() chains execute across the browser so we don't freeze onblocked
+        setTimeout(() => {
+            const version = db.version + 1;
+            const upgradeReq = indexedDB.open(DB_NAME, version);
 
-        upgradeReq.onupgradeneeded = (event) => {
-            const upgradeDb = (event.target as IDBOpenDBRequest).result;
-            if (upgradeDb.objectStoreNames.contains(tableStoreName)) {
-                upgradeDb.deleteObjectStore(tableStoreName);
-            }
-        };
+            upgradeReq.onupgradeneeded = (event) => {
+                const upgradeDb = (event.target as IDBOpenDBRequest).result;
+                if (upgradeDb.objectStoreNames.contains(tableStoreName)) {
+                    upgradeDb.deleteObjectStore(tableStoreName);
+                }
+            };
 
-        upgradeReq.onsuccess = () => {
-            const newDb = upgradeReq.result;
-            newDb.close();
-            resolve();
-        };
+            upgradeReq.onsuccess = () => {
+                const newDb = upgradeReq.result;
+                newDb.close();
+                resolve();
+            };
 
-        upgradeReq.onerror = () => reject(upgradeReq.error);
+            upgradeReq.onerror = () => reject(upgradeReq.error);
+            
+            // Standard IndexedDB edge-case warning
+            upgradeReq.onblocked = () => {
+                console.warn("Table wipe delayed: IndexedDB connection upgrade is blocked.");
+            };
+        }, 10);
     });
 }
 
@@ -141,13 +154,17 @@ export async function insertItem(tableId: IDBValidKey, id: IDBValidKey, item: It
 
 
 export async function deleteItem(tableId: IDBValidKey, id: IDBValidKey) {
+    await shiftItems(tableId, id, true);
+}
+
+export async function markAsDone(tableId: IDBValidKey, id: IDBValidKey) {
     const item = await getItemById(tableId, id);
     if (!item) {
         return false;
     }
 
     const tableMetadata = await getTableMetadata(tableId);
-    const fields = (await getTableMetadata(tableId)).fields;
+    const fields = tableMetadata.fields;
 
     let historyTableMetadata = await getHistoryTableMetadata();
     if (historyTableMetadata) {
@@ -158,17 +175,15 @@ export async function deleteItem(tableId: IDBValidKey, id: IDBValidKey) {
 
         const historyItem: Item = { id: 0, k: tableMetadata.secondaryColor};
 
-        if (item) {
-            for (let i = 0; i < hTableFields.length; i++) {
-                let hTableField = hTableFields[i];
-                if (hTableField.id) continue;
-                let keyIndex = fields.findIndex((f) => f.name == hTableField.name);
-                if (keyIndex !== -1) {
-                    historyItem[i] = item[keyIndex];
-                }
+        for (let i = 0; i < hTableFields.length; i++) {
+            let hTableField = hTableFields[i];
+            if (hTableField.id) continue;
+            let keyIndex = fields.findIndex((f) => f.name == hTableField.name);
+            if (keyIndex !== -1) {
+                historyItem[i] = item[keyIndex];
             }
-            await editItem(hTableId, historyItem);
         }
+        await editItem(hTableId, historyItem);
     }
     console.log("shift up");
     await shiftItems(tableId, id, true);
@@ -308,9 +323,6 @@ export async function editItem(tableId: IDBValidKey, modifyItem: Item) {
                     }
                 }
             }
-            if (modifyItem['c'] == undefined) {
-                delete newItem['c'];
-            }
             // delete if only has c and id
             if (Object.keys(newItem).length === 1 || (Object.keys(newItem).length === 2 && newItem.hasOwnProperty('c'))) {
                 updateReq = store.delete(newItem.id);
@@ -322,6 +334,21 @@ export async function editItem(tableId: IDBValidKey, modifyItem: Item) {
             updateReq.onerror = () => reject(updateReq.error);
         };
 
+        req.onerror = () => reject(req.error);
+        tx.oncomplete = () => db.close();
+        tx.onerror = () => reject(tx.error);
+    });
+}
+
+export async function putItem(tableId: IDBValidKey, item: Item) {
+    let tableStoreName = tableId.toString()
+    const db = await openDB();
+    return new Promise<void>((resolve, reject) => {
+        const tx = db.transaction(tableStoreName, "readwrite");
+        const store = tx.objectStore(tableStoreName);
+        const req = store.put(item);
+
+        req.onsuccess = () => resolve();
         req.onerror = () => reject(req.error);
         tx.oncomplete = () => db.close();
         tx.onerror = () => reject(tx.error);
@@ -377,9 +404,6 @@ export async function removeFieldMetadata(tableId: IDBValidKey, field: Field, fi
                     table.fields.pop();
                 }
                 const updateReq = store.put(table);
-                if (table.fields.length === 0) {
-                    store.delete(tableId);
-                }
                 updateReq.onsuccess = () => resolve(table.fields);
                 updateReq.onerror = () => reject(updateReq.error);
             } else {
@@ -392,7 +416,7 @@ export async function removeFieldMetadata(tableId: IDBValidKey, field: Field, fi
     });
 }
 
-export async function addFieldMetadata(tableId: IDBValidKey, field: Field, fieldPosition?: number) {
+export async function addFieldMetadata(tableId: IDBValidKey, field: Field, fieldPosition?: number, insert: boolean = false) {
     const db = await openDB();
     return new Promise<Field>((resolve, reject) => {
         const tx = db.transaction(METADATA_STORE_NAME, "readwrite");
@@ -402,16 +426,22 @@ export async function addFieldMetadata(tableId: IDBValidKey, field: Field, field
             const table = req.result as Table;
             if (table) {
                 let oldField;
-                if (field.id) {
-                    oldField = table.fields.find((f)=>f.id === field.id);
-                } else if (fieldPosition !== undefined) {
-                    oldField = table.fields[fieldPosition];
+                if (!insert) {
+                    if (field.id) {
+                        oldField = table.fields.find((f)=>f.id === field.id);
+                    } else if (fieldPosition !== undefined) {
+                        oldField = table.fields[fieldPosition];
+                    }
                 }
+
                 if (oldField) {
                     Object.assign(oldField, field);
                 } else {
-                    // if field position or field id does not exist
-                    table.fields.push(field);
+                    if (insert && fieldPosition !== undefined) {
+                        table.fields.splice(fieldPosition, 0, field);
+                    } else {
+                        table.fields.push(field);
+                    }
                     console.log("added field", field)
                 }
                 const updateReq = store.put(table);

@@ -88,6 +88,7 @@ export class ActionManager {
       clearTimeout(this.debounceTimer);
       this.debounceTimer = null;
       if (this.updateCallback) {
+        console.log(this.updateCallback == null);
         await this.updateCallback();
       }
     }
@@ -143,6 +144,7 @@ export class ActionManager {
   }
 
   public async executeAction(action: Action): Promise<any> {
+    console.log("executing action", action)
     const result = await action.execute();
     this.actionHistory.push(action);
     this.syncableActions.push(action.toJSON());
@@ -248,18 +250,21 @@ async function initializeRegistry(): Promise<void> {
   if (registryInitialized) return;
 
   const actionTypes = await import("./actionTypes");
-  actionRegistry = new Map([
+  actionRegistry = new Map<string, ActionConstructor>([
     ["ResetDB", actionTypes.ResetDBAction],
     ["ImportDataFromJson", actionTypes.ImportDataFromJsonAction],
     ["CreateTable", actionTypes.CreateTableAction],
     ["DeleteTable", actionTypes.DeleteTableAction],
     ["EditItem", actionTypes.EditItemAction],
     ["DeleteItem", actionTypes.DeleteItemAction],
+    ["MarkAsDoneAction", actionTypes.MarkAsDoneAction],
     ["InsertItem", actionTypes.InsertItemAction],
     ["ShiftItems", actionTypes.ShiftItemsAction],
     ["ShiftItemsSide", actionTypes.ShiftItemsSideAction],
     ["AddFieldMetadata", actionTypes.AddFieldMetadataAction],
     ["RemoveFieldMetadata", actionTypes.RemoveFieldMetadataAction],
+    ["UpdateFieldMetadata", actionTypes.UpdateFieldMetadataAction],
+    ["RenameTable", actionTypes.RenameTableAction]
   ]);
   registryInitialized = true;
 }
