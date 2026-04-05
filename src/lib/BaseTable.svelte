@@ -406,4 +406,11 @@
     border: none;
     border-radius: 0;
   }
+  .color-picker-popup input[type="color"]::-moz-color-swatch-wrapper {
+    padding: 0;
+  }
+  .color-picker-popup input[type="color"]::-moz-color-swatch {
+    border: none;
+    border-radius: 0;
+  }
 </style>

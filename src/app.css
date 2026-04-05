@@ -84,9 +84,26 @@ button {
   gap: 10em;
 }
 
+@media (max-width: 1024px) {
+  html, body {
+    overflow-x: hidden;
+  }
+
+  .tables {
+    flex-direction: column;
+    gap: 5em;
+    max-width: 100vw;
+    overflow: hidden;
+  }
+
+  .add-table {
+    margin: 50px 20px;
+  }
+}
+
 .add-table-container {
   position: relative;
-  min-height: calc(100vh - 20px);
+  min-height: calc(100dvh - 20px);
 }
 
 .add-table {
@@ -172,6 +189,11 @@ button.menu:disabled:hover {
 }
 
 /* scrollbar */
+* {
+  scrollbar-width: thin;
+  scrollbar-color: #101620 transparent;
+}
+
 ::-webkit-scrollbar {
   width: 10px;
   height: 10px;

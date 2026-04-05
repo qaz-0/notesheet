@@ -1,6 +1,6 @@
 .tri-state-checkbox {
-    height: 100%;
-    width: calc(1lh + 10px);
+    position: absolute;
+    inset: 0;
     border: 2px solid grey;
     cursor: pointer;
     display: block;
