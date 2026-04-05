@@ -39,6 +39,7 @@
     incrementFieldsKey: () => {
       fieldsKey++;
     },
+    formatDate: (stored) => getOriginalInput(stored),
   });
 
   // ─── Data loading ─────────────────────────────────────────────────
@@ -73,27 +74,15 @@
       if (item) freshDataMap.set(item.id, item);
     }
 
-    if (tableData.length !== newLength) tableData.length = newLength;
-
+    const newData = new Array(newLength).fill(null);
     for (let i = 0; i < newLength; i++) {
       const freshItem = freshDataMap.get(i);
-      const currentItem = tableData[i];
-
-      if (!freshItem && !currentItem) continue;
-      else if (freshItem && !currentItem) tableData[i] = { ...freshItem };
-      else if (!freshItem && currentItem) tableData[i] = null;
-      else if (freshItem && currentItem) {
-        for (const key in currentItem) {
-          if (!(key in freshItem)) delete currentItem[key];
-        }
-        for (const key in freshItem) {
-          if (currentItem[key] !== freshItem[key])
-            currentItem[key] = freshItem[key];
-        }
+      if (freshItem) {
+        newData[i] = { ...freshItem };
       }
     }
 
-    tableData = [...tableData];
+    tableData = newData;
     document.dispatchEvent(
       new CustomEvent("tableDataLoaded", { detail: tableId }),
     );
@@ -147,13 +136,15 @@
   onHeaderClick={handleHeaderClick}
   onBodyClick={handleBodyClick}
 >
-  {#each tableData as row, i (i)}
-    <tr data-row={i} data-k={row ? (row.k ?? row.k) : null}>
+  {#key fieldsKey}
+    {#each tableData as row, i (i)}
+      <tr data-row={i} data-k={row ? (row.k ?? row.k) : null}>
       {#each fields as field, j}
         {#if field.id === "c"}
           <td>
             <Checkbox
               initialState={row ? (row.c ?? 0) : 0}
+              syncKey={row}
               disabled={row ? false : true}
               color={table.color}
               {zeroToOne}
@@ -178,5 +169,6 @@
         {/if}
       {/each}
     </tr>
-  {/each}
+    {/each}
+  {/key}
 </BaseTable>

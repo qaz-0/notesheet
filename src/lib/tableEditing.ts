@@ -12,6 +12,9 @@ import {
 import { isAtStartEnd, navigate } from "./tableNavigation";
 import type { Direction, Field, Item, BaseTableContext } from "./types";
 import { parseDate, isValidDateString, getOriginalInput, formatDateDisplay } from "./dateParser";
+import markdownit from "markdown-it";
+
+const md = markdownit();
 
 export interface TableEditorContext extends BaseTableContext {
   getCheckboxIndex: () => number;
@@ -83,7 +86,7 @@ export function createTableEditor(ctx: TableEditorContext) {
 
       const currentContent = cell.innerText.replace(/\u200B/g, "");
 
-      if (plainText !== null && currentContent !== plainText) {
+      if (plainText !== null && (currentContent !== plainText || cell.innerText.includes("\u200B"))) {
         cell.textContent = plainText;
       }
     }
@@ -103,7 +106,20 @@ export function createTableEditor(ctx: TableEditorContext) {
         selection.removeAllRanges();
         selection.addRange(range);
       }
+      // Check immediately if we were on markdown to show preview
+      inputHandler();
     }, 0);
+
+    const inputHandler = () => {
+      const isMd = cell.innerText.endsWith("\nm");
+      document.dispatchEvent(new CustomEvent("notesheetMarkdownPreview", {
+        detail: {
+          show: isMd,
+          text: cell.innerText.replace(/\u200B/g, ""),
+          rect: cell.getBoundingClientRect()
+        }
+      }));
+    };
 
     const keydownHandler = async (event: KeyboardEvent) => {
       let direction: Direction | undefined;
@@ -115,6 +131,8 @@ export function createTableEditor(ctx: TableEditorContext) {
             let { isAtEnd } = isAtStartEnd(cell);
             if (!isAtEnd) break;
             event.preventDefault();
+
+            // if (confirm(`Are you sure you want to delete row ${rowNum}?`)) {
 
             const cellIndex = cell.cellIndex;
             const targetRowId = rowNum;
@@ -224,6 +242,8 @@ export function createTableEditor(ctx: TableEditorContext) {
     async function finishEdit(cancel = false, restoreText: string | null = null) {
       cell.removeEventListener("keydown", keydownHandler);
       cell.removeEventListener("blur", blurHandler);
+      cell.removeEventListener("input", inputHandler);
+      document.dispatchEvent(new CustomEvent("notesheetMarkdownPreview", { detail: { show: false } }));
 
       if (!cell.isContentEditable) return;
 
@@ -249,14 +269,14 @@ export function createTableEditor(ctx: TableEditorContext) {
           const newField = { name: newText, size: oldField.size };
 
           if (oldField.name !== newField.name) {
-            if (confirm(`Are you sure you want to rename the column "${originalText}" to "${newText}"?`)) {
-              fields[cellIndex] = newField;
-              ctx.setFields([...fields]);
-              let updateAction = new UpdateFieldMetadataAction(ctx.tableId, newField, cellIndex);
-              await actionManager.executeAction(updateAction);
-            } else {
-              cell.innerHTML = restoreText ?? originalText;
-            }
+            // if (confirm(`Are you sure you want to rename the column "${originalText}" to "${newText}"?`)) {
+            fields[cellIndex] = newField;
+            ctx.setFields([...fields]);
+            let updateAction = new UpdateFieldMetadataAction(ctx.tableId, newField, cellIndex);
+            await actionManager.executeAction(updateAction);
+            // } else {
+            //   cell.innerHTML = restoreText ?? originalText;
+            // }
           }
         } else {
           if (fieldAtIndex && fieldAtIndex.name.toLowerCase() === 'date' && newText.trim() !== '') {
@@ -302,6 +322,10 @@ export function createTableEditor(ctx: TableEditorContext) {
           // Immediately update cell display for date fields
           if (fieldAtIndex && fieldAtIndex.name.toLowerCase() === 'date' && isValidDateString(storedValue)) {
             cell.textContent = formatDate(storedValue);
+          } else if (newText.endsWith("\nm")) {
+            cell.innerHTML = md.render(newText.slice(0, -2));
+          } else {
+            cell.textContent = newText;
           }
         }
       }
@@ -309,6 +333,7 @@ export function createTableEditor(ctx: TableEditorContext) {
 
     cell.addEventListener("keydown", keydownHandler);
     cell.addEventListener("blur", blurHandler);
+    cell.addEventListener("input", inputHandler);
   }
 
   return { focusCell, editCell };

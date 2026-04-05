@@ -4,6 +4,7 @@
 
   let {
     initialState,
+    syncKey = null,
     disabled = false,
     color = "#ff3e00",
     zeroToOne = async () => {},
@@ -20,12 +21,14 @@
     twoToOne?: (checkbox: HTMLDivElement) => Promise<void>;
     oneToZero?: (checkbox: HTMLDivElement) => Promise<void>;
     twoToZero?: (checkbox: HTMLDivElement) => Promise<void>;
+    syncKey?: any;
   } = $props();
 
-  let state: CheckboxState = $state(initialState); // Update to use initialState
+  let state: CheckboxState = $state(initialState);
 
   // Sync internal state when initialState prop changes (e.g., on undo/redo)
   $effect(() => {
+    syncKey; // Force effect to rerun when syncKey changes
     state = initialState;
   });
 

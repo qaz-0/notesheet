@@ -31,10 +31,17 @@ export default defineConfig({
         theme_color: '#3b82f6',
         icons: [
           {
-            src: 'favicon.png',
-            sizes: '16x16',
-            type: 'image/png'
+            src: 'icon.svg',
+            sizes: '192x192',
+            type: 'image/svg+xml',
+            purpose: 'any maskable'
           },
+          {
+            src: 'icon.svg',
+            sizes: '512x512',
+            type: 'image/svg+xml',
+            purpose: 'any maskable'
+          }
         ]
       }
     })

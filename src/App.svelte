@@ -6,7 +6,6 @@
   import type { Table as TableMeta } from "./lib/types";
   import { getAllTableMetadata, exportDataToJson } from "./lib/db";
   import TableCreationDialog from "./lib/TableCreationDialog.svelte";
-  import PwaReloadPrompt from "./lib/PwaReloadPrompt.svelte";
   import SyncStatus from "./lib/SyncStatus.svelte";
   import DevicePairing from "./lib/DevicePairing.svelte";
   import MainMenu from "./lib/MainMenu.svelte";
@@ -19,6 +18,7 @@
   } from "./lib/actionTypes";
   import ShapeGrid from "./lib/ShapeGrid.svelte";
   import { initializeSyncManager, type SyncManager } from "./lib/sync";
+  import MarkdownPreviewPopup from "./lib/MarkdownPreviewPopup.svelte";
 
   let tables: TableMeta[] = $state([]);
   let historyTable: TableMeta | null = $state(null);
@@ -49,21 +49,32 @@
     localStorage.setItem("syncEnabled", String(syncEnabled));
     if (syncManager) {
       if (syncEnabled) {
-        syncManager.start(30000);
+        syncManager.start(5000);
       } else {
         syncManager.stop();
       }
     }
   }
 
-  // Initialize sync on mount
+  // Initialize sync and PWA prompt on mount
+  let deferredPrompt = $state<any>(null);
+
   onMount(() => {
+    window.addEventListener("beforeinstallprompt", (e) => {
+      e.preventDefault();
+      deferredPrompt = e;
+    });
+
+    window.addEventListener("appinstalled", () => {
+      deferredPrompt = null;
+    });
+
     syncEnabled = localStorage.getItem("syncEnabled") !== "false";
     syncManager = initializeSyncManager(SYNC_API_URL);
     actionManager.setSyncManager(syncManager);
 
     if (syncEnabled) {
-      syncManager.start(30000); // Sync every 30 seconds
+      syncManager.start(5000); // Sync every 30 seconds
     }
   });
 
@@ -74,7 +85,7 @@
   });
 
   function openAddTableDialog() {
-    showCreateDialog = true;
+    showCreateDialog = !showCreateDialog;
   }
 
   function handleFileSelected(event: Event) {
@@ -321,7 +332,7 @@
       hoverTrailAmount={0}
     />
   </div>
-  <PwaReloadPrompt />
+  <MarkdownPreviewPopup />
   <div class="app-controls">
     <MainMenu
       {syncEnabled}
@@ -333,6 +344,7 @@
       {canRedo}
       {handleUndo}
       {handleRedo}
+      {deferredPrompt}
     />
     <input
       type="file"
@@ -362,7 +374,11 @@
     {/if}
     <div class="add-table-container">
       <div class="add-table">
-        <button class="add-table-btn" onclick={openAddTableDialog} title="Add Table">
+        <button
+          class="add-table-btn"
+          onclick={openAddTableDialog}
+          title="Add Table"
+        >
           <Icon name="plus" size={32} strokeWidth={3} />
         </button>
         {#if showCreateDialog}

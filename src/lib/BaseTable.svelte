@@ -4,6 +4,7 @@
   import { createTableChrome } from "./tableChrome";
   import type { Table, Field } from "./types";
   import ContextMenu from "./ContextMenu.svelte";
+  import Icon from "./Icon.svelte";
   import { actionManager } from "./actions";
   import {
     DeleteTableAction,
@@ -51,6 +52,9 @@
     },
   });
 
+  let showColorPicker = $state(false);
+  let pickerPos = $state({ x: 0, y: 0 });
+
   function handleTableClick(e: PointerEvent) {
     const target = e.target as HTMLElement;
     const caption = target.closest("caption");
@@ -59,7 +63,7 @@
     ) as HTMLTableCellElement | null;
     const bodyCell = target.closest("tbody td") as HTMLTableCellElement | null;
 
-    if (caption) {
+    if (caption && e.button === 0) {
       handleCaptionClick(target, caption);
       return;
     }
@@ -70,6 +74,7 @@
     }
 
     if (bodyCell && onBodyClick) {
+      if (target.closest("a")) return;
       onBodyClick(bodyCell);
       return;
     }
@@ -120,7 +125,10 @@
         {
           label: "Edit Color",
           icon: "palette",
-          onClick: () => handleCaptionClick(target, caption),
+          onClick: () => {
+            pickerPos = { x: contextMenu!.x, y: contextMenu!.y };
+            showColorPicker = true;
+          },
         },
         {
           label: "Delete Table",
@@ -243,9 +251,9 @@
 >
   {#if isEditing}
     <div class="add-column-container">
-      <button class="add-column" onclick={handleAddColumn}
-        ><img src={plusIcon} alt="add column" /></button
-      >
+      <button class="add-column" onclick={handleAddColumn}>
+        <Icon name="plus" size={24} color="var(--color)" />
+      </button>
     </div>
   {/if}
   <table
@@ -283,6 +291,68 @@
   </table>
 </div>
 
+{#if showColorPicker}
+  <div
+    class="color-picker-popup"
+    style="left: {pickerPos.x}px; top: {pickerPos.y}px;"
+    onpointerdown={(e) => e.stopPropagation()}
+  >
+    <div class="color-row">
+      <label for="primary-color">Primary</label>
+      <input
+        id="primary-color"
+        type="color"
+        value={table.color}
+        oninput={(e) => {
+          table.color = e.currentTarget.value;
+        }}
+        onchange={async (e) => {
+          table.color = e.currentTarget.value;
+          const { UpdateTableColorAction } = await import("./actionTypes");
+          actionManager.executeAction(
+            new UpdateTableColorAction(
+              table.id!,
+              table.color,
+              table.secondaryColor ?? table.color,
+            ),
+          );
+        }}
+      />
+    </div>
+    <div class="color-row">
+      <label for="secondary-color">Secondary</label>
+      <input
+        id="secondary-color"
+        type="color"
+        value={table.secondaryColor}
+        oninput={(e) => {
+          table.secondaryColor = e.currentTarget.value;
+        }}
+        onchange={async (e) => {
+          table.secondaryColor = e.currentTarget.value;
+          const { UpdateTableColorAction } = await import("./actionTypes");
+          actionManager.executeAction(
+            new UpdateTableColorAction(
+              table.id!,
+              table.color,
+              table.secondaryColor ?? table.color,
+            ),
+          );
+        }}
+      />
+    </div>
+  </div>
+{/if}
+
+<svelte:window
+  onpointerdown={() => {
+    if (showColorPicker) showColorPicker = false;
+  }}
+  onkeydown={(e) => {
+    if (showColorPicker && e.key === "Escape") showColorPicker = false;
+  }}
+/>
+
 {#if contextMenu}
   <ContextMenu
     x={contextMenu.x}
@@ -291,3 +361,49 @@
     onClose={() => (contextMenu = null)}
   />
 {/if}
+
+<style>
+  .color-picker-popup {
+    position: fixed;
+    z-index: 10001;
+    background-color: color-mix(
+      in srgb,
+      var(--background-color),
+      transparent 10%
+    );
+    backdrop-filter: blur(15px);
+    border: 2px solid black;
+    box-shadow: 8px 8px 0px rgba(0, 0, 0, 0.2);
+    padding: 12px;
+    display: flex;
+    flex-direction: column;
+    gap: 10px;
+    animation: pop-in 0.1s ease-out;
+  }
+  .color-row {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    justify-content: space-between;
+  }
+  .color-row label {
+    font-size: 14px;
+    font-weight: 500;
+    color: var(--color);
+  }
+  .color-picker-popup input[type="color"] {
+    width: 30px;
+    height: 30px;
+    padding: 0;
+    border: 2px solid black;
+    border-radius: 0;
+    cursor: pointer;
+  }
+  .color-picker-popup input[type="color"]::-webkit-color-swatch-wrapper {
+    padding: 0;
+  }
+  .color-picker-popup input[type="color"]::-webkit-color-swatch {
+    border: none;
+    border-radius: 0;
+  }
+</style>

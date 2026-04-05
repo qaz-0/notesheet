@@ -343,7 +343,7 @@ export class AddFieldMetadataAction extends Action {
 
     async execute(): Promise<Field> {
         const oldTableMetadata = await db.getTableMetadata(this.tableId);
-        const result = await db.addFieldMetadata(this.tableId, this.field, this.fieldPosition);
+        const result = await db.addFieldMetadata(this.tableId, this.field, this.fieldPosition, true);
         this.setUndoArgs(this.generateUndoArgs({ oldFields: oldTableMetadata.fields, newField: result }));
         return result;
     }
@@ -386,11 +386,6 @@ export class RemoveFieldMetadataAction extends Action {
 
     async undo(): Promise<void> {
         const [undoData] = this.undoArgs!;
-
-        // Before adding the restored field back, shift current fields right to carve space in IDB Items
-        if (this.fieldPosition !== undefined) {
-            await db.shiftItemsSide(this.tableId, this.fieldPosition, true);
-        }
 
         await db.addFieldMetadata(this.tableId, undoData.field, this.fieldPosition, true);
 

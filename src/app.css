@@ -1,9 +1,9 @@
 @layer theme, base, components, utilities;
 
+@import url('https://fonts.googleapis.com/css2?family=Outfit:wght@100..900&display=swap');
 @import "tailwindcss/theme.css" layer(theme);
 /* @import "tailwindcss/preflight.css" layer(base); */
 @import "tailwindcss/utilities.css" layer(utilities);
-@import url('https://fonts.googleapis.com/css2?family=Outfit:wght@100..900&display=swap');
 
 :root {
   font-family: 'Outfit', sans-serif;
@@ -25,6 +25,14 @@
   text-rendering: optimizeLegibility;
   -webkit-font-smoothing: antialiased;
   -moz-osx-font-smoothing: grayscale;
+}
+
+body,
+button,
+input,
+select,
+textarea {
+  font-family: inherit;
 }
 
 @media (prefers-color-scheme: light) {}
@@ -78,7 +86,7 @@ button {
 
 .add-table-container {
   position: relative;
-  min-height: 100vh;
+  min-height: calc(100vh - 20px);
 }
 
 .add-table {
@@ -93,14 +101,13 @@ button {
   justify-content: center;
   width: 54px;
   height: 54px;
-  background-color: color-mix(
-    in srgb,
-    var(--background-color),
-    rgba(10, 10, 10, 0.9) 90%
-  );
+  background-color: color-mix(in srgb,
+      var(--background-color),
+      rgba(10, 10, 10, 0.9) 90%);
   backdrop-filter: blur(8px);
   border: 2px solid black;
-  border-radius: 10px;
+  border-radius: 0px;
+  box-shadow: 4px 4px 0px rgba(0, 0, 0, 0.2);
   color: var(--color);
   cursor: pointer;
   transition: all 0.1s ease;
@@ -110,10 +117,12 @@ button {
 .add-table-btn:hover {
   transform: translate(-1px, -1px);
   background-color: rgba(255, 255, 255, 0.1);
+  box-shadow: 5px 5px 0px rgba(0, 0, 0, 0.2);
 }
 
 .add-table-btn:active {
-  transform: translate(0px, 0px);
+  transform: translate(2px, 2px);
+  box-shadow: 0px 0px 0px rgba(0, 0, 0, 0.2);
 }
 
 

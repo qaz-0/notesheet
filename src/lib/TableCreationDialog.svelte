@@ -165,11 +165,11 @@
         background-color: color-mix(
             in srgb,
             var(--background-color),
-            rgba(10, 10, 10, 0.9) 90% /* rgba(200, 200, 200, 0.05) 90% */
+            rgba(10, 10, 10, 0.5) 90% /* rgba(200, 200, 200, 0.05) 90% */
         );
         backdrop-filter: blur(10px);
         border: 3px solid black;
-        border-radius: 12px;
+        border-radius: 0px;
         padding: 24px;
         box-shadow: 12px 12px 0px rgba(0, 0, 0, 0.3);
         color: var(--color);
@@ -218,7 +218,7 @@
         padding: 0;
         border: 2px solid black;
         box-sizing: border-box;
-        border-radius: 8px;
+        border-radius: 0px;
         height: 40px;
         margin-bottom: 10px;
         cursor: pointer;
@@ -230,7 +230,7 @@
 
     input[type="color"]::-webkit-color-swatch {
         border: none;
-        border-radius: 6px;
+        border-radius: 0px;
     }
 
     .color-section {
@@ -249,7 +249,7 @@
         width: 100%;
         aspect-ratio: 1;
         border: 2px solid black;
-        border-radius: 6px;
+        border-radius: 0px;
         cursor: pointer;
         transition:
             transform 0.2s ease,
@@ -276,7 +276,7 @@
         );
         backdrop-filter: blur(8px);
         border: 2px solid black;
-        border-radius: 8px;
+        border-radius: 0px;
         padding: 10px 16px;
         color: var(--color);
         font-weight: 800;
@@ -305,7 +305,7 @@
 
     .color-label {
         position: absolute;
-        top: 2px;
+        top: 6px;
         left: 10px;
         pointer-events: none;
         z-index: 1;

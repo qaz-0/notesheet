@@ -76,7 +76,7 @@
     backdrop-filter: blur(15px);
     border: 2px solid black;
     box-shadow: 8px 8px 0px rgba(0, 0, 0, 0.2);
-    border-radius: 8px;
+    border-radius: 0px;
     padding: 6px;
     display: flex;
     flex-direction: column;
@@ -107,7 +107,7 @@
     font-size: 14px;
     font-weight: 500;
     cursor: pointer;
-    border-radius: 6px;
+    border-radius: 0px;
     transition: all 0.1s ease;
   }
 

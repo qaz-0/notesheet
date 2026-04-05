@@ -13,6 +13,7 @@
     canRedo,
     handleUndo,
     handleRedo,
+    deferredPrompt,
   } = $props<{
     syncEnabled: boolean;
     toggleSync: () => void;
@@ -23,6 +24,7 @@
     canRedo: boolean;
     handleUndo: () => void;
     handleRedo: () => void;
+    deferredPrompt: any;
   }>();
 
   let isOpen = $state(false);
@@ -167,6 +169,7 @@
 
 <style>
   .main-menu-container {
+    font-family: inherit;
     display: flex;
     gap: 12px;
     align-items: center;
@@ -178,13 +181,13 @@
     background-color: color-mix(
       in srgb,
       var(--background-color),
-      rgba(10, 10, 10, 0.9) 90%
+      rgba(10, 10, 10, 0.5) 90%
     );
     backdrop-filter: blur(8px);
     border: 2px solid black;
-    border-radius: 8px;
+    border-radius: 0px;
     padding: 4px;
-    /* box-shadow: 4px 4px 0px rgba(0, 0, 0, 0.2); */
+    box-shadow: 4px 4px 0px rgba(0, 0, 0, 0.2);
   }
 
   .menu-wrapper {
@@ -198,30 +201,34 @@
     background-color: color-mix(
       in srgb,
       var(--background-color),
-      rgba(10, 10, 10, 0.9) 90%
+      rgba(10, 10, 10, 0.5) 90%
     );
     backdrop-filter: blur(8px);
     border: 2px solid black;
-    border-radius: 10px;
+    border-radius: 0px;
     padding: 8px 12px;
     color: var(--color);
     font-weight: 800;
     cursor: pointer;
+    box-shadow: 4px 4px 0px rgba(0, 0, 0, 0.2);
     transition: all 0.1s ease;
   }
 
   .menu-btn:hover:not(:disabled) {
     transform: translate(-1px, -1px);
+    background-color: rgba(255, 255, 255, 0.1);
+    box-shadow: 5px 5px 0px rgba(0, 0, 0, 0.2);
   }
 
   .menu-btn:active:not(:disabled),
   .menu-btn.open {
-    transform: translate(0px, 0px);
+    transform: translate(2px, 2px);
+    box-shadow: 0px 0px 0px rgba(0, 0, 0, 0.2);
   }
 
   .icon-btn {
     padding: 4px;
-    border-radius: 6px;
+    border-radius: 0px;
     border: none;
     box-shadow: none;
     background: transparent;
@@ -238,6 +245,7 @@
   }
 
   .menu-dropdown {
+    font-family: inherit;
     position: absolute;
     bottom: calc(100% + 16px);
     right: 0;
@@ -245,11 +253,11 @@
     background-color: color-mix(
       in srgb,
       var(--background-color),
-      rgba(10, 10, 10, 0.9) 90%
+      rgba(10, 10, 10, 0.5) 90% /* rgba(200, 200, 200, 0.05) 90% */
     );
     backdrop-filter: blur(14px);
     border: 3px solid black;
-    border-radius: 12px;
+    border-radius: 0px;
     padding: 12px;
     box-shadow: 10px 10px 0px rgba(0, 0, 0, 0.3);
     display: flex;
@@ -323,7 +331,7 @@
     font-size: 14px;
     font-weight: 700;
     cursor: pointer;
-    border-radius: 8px;
+    border-radius: 0px;
     transition: all 0.15s ease;
   }
 
@@ -343,7 +351,7 @@
     position: relative;
     width: 100%;
     height: 40px;
-    border-radius: 8px;
+    border-radius: 0px;
     border: 2px solid black;
     overflow: hidden;
     box-shadow: inset 0 2px 4px rgba(0, 0, 0, 0.2);
