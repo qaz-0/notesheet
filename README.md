@@ -8,14 +8,18 @@ notebook + spreadsheet + todo list
 
 ## how 2 use
 
+### general
+- right click to open the context menu
+
 ### table
 - create a table with the big plus button on the right side
-- create a table called "history" or "History" to save history, it will save the data with the same column name
+- create a table called "history" or "History" to save history, it will save all completed items
+- create a table called "time sensitive" to list all time sensitive items in order
 - click on the table name to edit its name
 
 ### cell
 - write in any cell
-- press delete in an ep
+- press delete in an empty cell to delete the row
 - click the square to mark as in progress or done, done items will clear on refresh
 - write "m" in the last line of the cell to render markdown
 - navigate with arrow keys, tab and alt key
@@ -27,15 +31,14 @@ notebook + spreadsheet + todo list
 - drag the right border of a column near the top to resize it
 - delete all columns to delete the table
 
+### syncing
+- enable sync in the menu
+- input the code from the device you want to sync data from
+
 ## security
-- app can be installed as pwa and can be used offline
-- all data is stored locally in the browser unless exported
+- app can be installed as pwa and can be used offline by disabling sync
+- all data is stored locally in the browser unless sync is enabled
 - markdown does not render html; it is safe to import other notes
 
 ## todo
-- time sensitive table
-- google drive sync
-- column and table reordering
-
-## known bugs
-- history table needs two refreshes to update
+- improve mobile layout

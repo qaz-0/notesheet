@@ -103,7 +103,7 @@ button {
   height: 54px;
   background-color: color-mix(in srgb,
       var(--background-color),
-      rgba(10, 10, 10, 0.9) 90%);
+      rgba(10, 10, 10, 0.5) 90%);
   backdrop-filter: blur(8px);
   border: 2px solid black;
   border-radius: 0px;
